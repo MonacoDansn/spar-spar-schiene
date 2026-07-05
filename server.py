@@ -83,6 +83,14 @@ class Handler(BaseHTTPRequestHandler):
         return False
 
     def do_GET(self):
+        if self.path == "/api/health":
+            # Ohne Auth: prueft, ob die OeBB-API von diesem Server aus erreichbar ist
+            try:
+                shared_client._get_token()
+                self._json({"status": "ok", "oebb": True})
+            except Exception as e:
+                self._json({"status": "error", "oebb": False, "detail": str(e)[:200]}, 502)
+            return
         if not self._check_auth():
             return
         parsed = urllib.parse.urlparse(self.path)
