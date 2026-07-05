@@ -132,6 +132,8 @@ tr.best { background: #eaf7ee; }
   padding: 2px 6px;
   margin-left: 6px;
 }
+.tag-warn { background: #e67e00; }
+.warn-text { color: #e67e00; font-weight: 400; }
 .trains { font-family: Consolas, monospace; font-size: 13px; }
 .note { font-size: 13px; color: var(--gray); }
 

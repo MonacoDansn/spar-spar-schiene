@@ -257,10 +257,17 @@ class OebbClient:
         result = {}
         for offer in data.get("offers") or []:
             note = offer.get("specialNote") or {}
+            # reducedScope = Preis gilt nur fuer eine TEILSTRECKE der Verbindung!
+            scope = offer.get("reducedScope") or []
+            scope_txt = "; ".join(
+                f"{(s.get('from') or {}).get('name', '?')} → {(s.get('to') or {}).get('name', '?')}"
+                for s in scope) or None
             result[offer["connectionId"]] = {
                 "price": offer.get("price"),
                 "sparschiene": note.get("de") == "Sparschiene",
                 "error": bool(offer.get("offerError")),
+                "reduced": bool(scope),
+                "reducedScope": scope_txt,
             }
         return result
 

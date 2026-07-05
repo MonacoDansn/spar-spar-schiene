@@ -181,6 +181,8 @@ class ScanJob:
         if price is None:
             return
         entry = {
+            "reduced": price_info.get("reduced", False),
+            "reducedScope": price_info.get("reducedScope"),
             "ticketFrom": ticket_from["name"],
             "ticketTo": ticket_to["name"],
             "ticketFromId": ticket_from["id"],
@@ -388,11 +390,14 @@ class ScanJob:
                 if hits:
                     found += 1
                     if on_survivor is not None:
-                        # dep-Zeit, Bestpreis, Sparschiene-Flag und Referenzpreis merken (fuer Phase C)
+                        # dep-Zeit, Bestpreis, Sparschiene-Flag und Referenzpreis merken (fuer Phase C).
+                        # Teilstrecken-Angebote (reduced) zaehlen NICHT als attraktiv -
+                        # ihr Preis deckt die Relation ja nicht ab.
                         conn = hits[0][0]
-                        best = min(h[2]["price"] for h in hits)
-                        spar = any(h[2]["sparschiene"] for h in hits)
-                        refs = [h[1]["price"] for h in hits if h[1]["price"] is not None]
+                        full = [h for h in hits if not h[2].get("reduced")]
+                        best = min((h[2]["price"] for h in full), default=None)
+                        spar = any(h[2]["sparschiene"] for h in full)
+                        refs = [h[1]["price"] for h in full if h[1]["price"] is not None]
                         ref = min(refs) if refs else None
                         target = item if not isinstance(item, tuple) else item[0]
                         on_survivor(target, conn["from"]["departure"], best, spar, ref)

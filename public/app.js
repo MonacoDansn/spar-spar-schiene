@@ -357,15 +357,21 @@ function renderResults() {
 
   const tbody = document.getElementById("results-table").querySelector("tbody");
   tbody.innerHTML = "";
+  // Bestpreis-Markierung: erstes Ticket, dessen Preis die GANZE Strecke abdeckt
+  const bestIdx = sorted.findIndex((r) => !r.reduced);
   sorted.forEach((r, i) => {
     const tr = document.createElement("tr");
-    if (i === 0) tr.classList.add("best");
+    if (i === bestIdx) tr.classList.add("best");
     const saving = r.saving != null ? r.saving : 0;
     const savingHtml = saving > 0
       ? `<span class="saving-pos">-${fmtPrice(saving).slice(2)} €</span>`
       : `<span class="saving-neg">${saving < 0 ? "+" + fmtPrice(-saving).slice(2) + " €" : "±0"}</span>`;
+    const reducedHtml = r.reduced
+      ? `<span class="tag tag-warn" title="${r.reducedScope || ""}">⚠ Teilstrecke</span>` +
+        (r.reducedScope ? `<br><small class="warn-text">Preis gilt nur: ${r.reducedScope}</small>` : "")
+      : "";
     tr.innerHTML =
-      `<td class="price">${fmtPrice(r.price)}${r.sparschiene ? '<span class="tag">Sparschiene</span>' : ""}</td>` +
+      `<td class="price">${fmtPrice(r.price)}${r.sparschiene ? '<span class="tag">Sparschiene</span>' : ""}${reducedHtml}</td>` +
       `<td>${savingHtml}</td>` +
       `<td>${r.ticketFrom}<br><small>ab ${fmtTime(r.ticketDep)}</small></td>` +
       `<td>${r.ticketTo}<br><small>an ${fmtTime(r.ticketArr)}</small></td>` +
