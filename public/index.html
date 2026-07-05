@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spar Spar Schiene</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>🚆 Spar Spar Schiene</h1>
+  <p class="subtitle">Findet günstigere ÖBB-Tickets auf deiner Strecke – einsteigen wo du willst, zahlen was am wenigsten kostet.</p>
+</header>
+
+<main>
+  <section class="card" id="form-card">
+    <div class="form-grid">
+      <div class="field">
+        <label for="from-input">Von (dein Einstieg)</label>
+        <input id="from-input" type="text" placeholder="z.B. Neumarkt/Wallersee" autocomplete="off">
+        <div class="suggestions" id="from-sugg"></div>
+      </div>
+      <div class="field">
+        <label for="to-input">Nach (dein Ziel)</label>
+        <input id="to-input" type="text" placeholder="z.B. Wien" autocomplete="off">
+        <div class="suggestions" id="to-sugg"></div>
+      </div>
+      <div class="field">
+        <label for="date-input">Datum</label>
+        <input id="date-input" type="date">
+      </div>
+      <div class="field">
+        <label for="time-input">Abfahrt ab</label>
+        <input id="time-input" type="time" value="08:00">
+      </div>
+      <div class="field">
+        <label for="radius-start">Radius hinter Einstieg: <b id="radius-start-val">40</b> km</label>
+        <input id="radius-start" type="range" min="0" max="200" value="40">
+      </div>
+      <div class="field">
+        <label for="radius-dest">Radius hinter Ziel: <b id="radius-dest-val">40</b> km</label>
+        <input id="radius-dest" type="range" min="0" max="200" value="40">
+      </div>
+      <div class="field">
+        <label for="extra-origin-input">Extra-Haltestellen Einstieg-Seite (auch Bus)</label>
+        <input id="extra-origin-input" type="text" placeholder="Haltestelle suchen und hinzufügen…" autocomplete="off">
+        <div class="suggestions" id="extra-origin-sugg"></div>
+        <div class="chips" id="extra-origin-chips"></div>
+      </div>
+      <div class="field">
+        <label for="extra-dest-input">Extra-Haltestellen Ziel-Seite (auch Bus)</label>
+        <input id="extra-dest-input" type="text" placeholder="Haltestelle suchen und hinzufügen…" autocomplete="off">
+        <div class="suggestions" id="extra-dest-sugg"></div>
+        <div class="chips" id="extra-dest-chips"></div>
+      </div>
+      <div class="field">
+        <label class="checkline"><input type="checkbox" id="auto-bus" checked>
+          Bushaltestellen automatisch ergänzen (1 pro Gemeinde)</label>
+      </div>
+      <div class="field">
+        <label for="combo-mode">Kombinationen (Ticket-Start ≠ Ticket-Ziel)</label>
+        <select id="combo-mode">
+          <option value="attractive">Nur vermutlich attraktive (empfohlen)</option>
+          <option value="all">Alle testen (kann sehr lange dauern)</option>
+        </select>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="scan-btn" disabled>🔍 Scan starten</button>
+      <button id="cancel-btn" class="secondary" style="display:none">Abbrechen</button>
+      <span id="scan-hint"></span>
+    </div>
+  </section>
+
+  <section class="card" id="map-card">
+    <div id="map"></div>
+  </section>
+
+  <section class="card" id="progress-card" style="display:none">
+    <h2 id="phase-label">…</h2>
+    <div class="progressbar"><div id="progress-fill"></div></div>
+    <div id="progress-text"></div>
+    <div id="log" class="log"></div>
+  </section>
+
+  <section class="card" id="soll-card" style="display:none">
+    <h2>Deine Soll-Verbindungen (Referenz)</h2>
+    <p class="note">☑️ Nur angehakte Verbindungen werden in der Ergebnisliste angezeigt —
+      so kannst du auf <b>deinen</b> Zug filtern.</p>
+    <table id="soll-table">
+      <thead><tr><th></th><th>Ab</th><th>An</th><th>Züge</th><th>Normalpreis</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section class="card" id="results-card" style="display:none">
+    <h2>💰 Gefundene Tickets <span id="result-count"></span></h2>
+    <p class="note">Du steigst wie geplant bei <b class="board-name"></b> ein und bei <b class="alight-name"></b> aus –
+      nur das Ticket beginnt/endet woanders.
+      &nbsp;Sortierung:
+      <select id="sort-mode">
+        <option value="price">Preis (günstigste zuerst)</option>
+        <option value="saving">Ersparnis (höchste zuerst)</option>
+      </select>
+    </p>
+    <table id="results-table">
+      <thead><tr>
+        <th>Preis</th><th>Ersparnis</th><th>Ticket von</th><th>Ticket nach</th>
+        <th>Dein Zug</th><th>Einstieg</th><th></th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+</main>
+
+<footer>
+  <p>⚠️ Inoffizielles Hobby-Tool, nutzt die öffentliche Shop-Schnittstelle der ÖBB. Preise ohne Gewähr –
+     vor dem Kauf im <a href="https://shop.oebbtickets.at" target="_blank">ÖBB Ticketshop</a> prüfen.
+     Hinweis: Tickets gelten offiziell ab dem aufgedruckten Startbahnhof; späteres Zusteigen im selben Zug
+     ist üblich, aber ohne Garantie (z.B. bei Zugausfall vor deinem Bahnhof).</p>
+</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

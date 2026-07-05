@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: spar-spar-schiene
+    runtime: python
+    plan: free
+    region: frankfurt
+    buildCommand: "echo 'keine Abhaengigkeiten - nur Python-Standardbibliothek'"
+    startCommand: python server.py
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: SPAR_PASSWORD
+        sync: false

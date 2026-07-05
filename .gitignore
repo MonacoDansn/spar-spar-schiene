@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+data/stations.json
+data/bus_cache.json
+data/places_cache.json
