@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Stilisierte Schiene mit Schwellen + Euro-Muenze -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- zwei Schienen -->
+    <path android:fillColor="#FFFFFF" android:pathData="M38,26 h6 v56 h-6 z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M64,26 h6 v56 h-6 z" />
+    <!-- Schwellen -->
+    <path android:fillColor="#FFFFFF" android:pathData="M30,34 h48 v5 h-48 z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M30,49 h48 v5 h-48 z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M30,64 h48 v5 h-48 z" />
+    <!-- Euro-Muenze unten rechts -->
+    <path android:fillColor="#FFD54F"
+        android:pathData="M72,68 m-14,0 a14,14 0 1,1 28,0 a14,14 0 1,1 -28,0" />
+    <path android:fillColor="#7A5800"
+        android:pathData="M78.5,61.5 a8.5,8.5 0 1,0 0,13 l-2.4,-2.4 a5.2,5.2 0 1,1 0,-8.2 z M66,65 h8 v2.2 h-8 z M66,68.8 h8 v2.2 h-8 z" />
+</vector>

@@ -102,6 +102,19 @@ Das Repo enthält ein fertiges `render.yaml` (Blueprint):
 Umgebungsvariablen: `PORT` (setzt Render automatisch), `HOST=0.0.0.0`,
 `SPAR_PASSWORD` (leer = kein Schutz, z.B. lokal).
 
+## Android-App (APK)
+
+Der Ordner `android/` enthält eine schlanke WebView-App; GitHub Actions baut bei
+jedem Push automatisch die APK und veröffentlicht sie als Release **`apk-latest`**
+(→ Releases-Seite des Repos, Datei `SparSparSchiene.apk`).
+
+- Beim ersten Start fragt die App nach der **Server-URL**: die Render-URL
+  (voreingestellt) oder daheim `http://<PC-IP>:8325`
+- Passwort wird einmal eingegeben und gespeichert (Menü: Zugangsdaten löschen)
+- Installation am Handy: APK herunterladen → Installation aus unbekannter Quelle
+  erlauben → installieren. Da die APK debug-signiert ist, bei App-Updates vorher
+  die alte Version deinstallieren.
+
 ## Hinweise
 
 - Inoffizielles Hobby-Tool; die ÖBB kann die Schnittstelle jederzeit ändern.
