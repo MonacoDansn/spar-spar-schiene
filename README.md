@@ -100,7 +100,27 @@ Das Repo enthält ein fertiges `render.yaml` (Blueprint):
    (Free-Tier: schläft nach 15 min Leerlauf, erster Aufruf danach dauert ~30–60 s)
 
 Umgebungsvariablen: `PORT` (setzt Render automatisch), `HOST=0.0.0.0`,
-`SPAR_PASSWORD` (leer = kein Schutz, z.B. lokal).
+`SPAR_PASSWORD` (leer = kein Schutz, z.B. lokal), `SPAR_WORKERS` / `SPAR_MAX_RPS`
+(Scan-Parallelität/Tempo; auf Render gedrosselt, da Free-Tier nur 0,1 CPU hat).
+
+### Stabilität auf dem Free-Tier
+
+Render legt Free-Instanzen nach 15 min ohne **eingehende** Anfragen schlafen —
+auch mitten im Scan, denn ein offener SSE-Stream zählt nicht zuverlässig als
+Traffic. Alle Scan-Jobs leben nur im RAM und sind nach einem Neustart weg.
+Dagegen sind drei Maßnahmen eingebaut:
+
+1. **Selbst-Ping während Scans** (`server.py`): solange ein Scan läuft, ruft der
+   Server alle 4 min seine eigene öffentliche URL (`RENDER_EXTERNAL_URL`, von
+   Render gesetzt) auf — das zählt als Traffic und verhindert den Spin-down
+   mitten im Scan. Intervall: `SPAR_KEEPALIVE_SECS` (Sekunden).
+2. **Keep-alive-Workflow** (`.github/workflows/keepalive.yml`): pingt den Server
+   alle 10 min via GitHub Actions an, damit es gar nicht erst zu Kaltstarts
+   kommt. Kann jederzeit gelöscht/deaktiviert werden; GitHub schaltet geplante
+   Workflows nach 60 Tagen ohne Repo-Aktivität selbst ab.
+3. **Saubere Fehlermeldung im Frontend**: startet der Server trotzdem neu
+   (Deploy, Absturz), meldet die App „Scan verloren (Server-Neustart)" statt
+   endlos weiterzuladen — vorher fror die Oberfläche einfach ein.
 
 ## Android-App (APK)
 

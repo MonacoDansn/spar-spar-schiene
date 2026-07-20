@@ -214,7 +214,18 @@ function connectEvents() {
   es.onerror = () => {
     // Verbindung weg -> Snapshot holen und ggf. neu verbinden
     es.close();
-    fetch(`/api/scan/${state.jobId}`).then((r) => r.json()).then((snap) => {
+    fetch(`/api/scan/${state.jobId}`).then((r) => {
+      if (r.status === 404) {
+        // Server wurde neu gestartet (z.B. Render-Hosting): Job existiert nur im
+        // RAM und ist weg. Ohne diese Pruefung wuerde die App endlos reconnecten.
+        logLine("FEHLER: Der Server wurde zwischenzeitlich neu gestartet – der laufende Scan ging verloren. Bitte Scan erneut starten.");
+        document.getElementById("phase-label").textContent = "⚠️ Scan verloren (Server-Neustart)";
+        finishScan();
+        return null;
+      }
+      return r.json();
+    }).then((snap) => {
+      if (!snap) return;
       if (snap.finished) {
         // Scan wurde waehrend der Unterbrechung fertig: Endstand uebernehmen
         if (Array.isArray(snap.results)) {

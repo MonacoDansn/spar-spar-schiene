@@ -1,0 +1,20 @@
+# Haelt den Render-Free-Server wach: ohne eingehenden Traffic legt Render die
+# Instanz nach 15 min schlafen, und der naechste Aufruf dauert 30-60 s (Kaltstart).
+# Der Ping alle 10 Minuten verhindert das. Kostet nichts (oeffentliches Repo).
+#
+# Abschalten: diese Datei loeschen oder den Workflow auf GitHub deaktivieren
+# (Actions -> Keep-alive -> "Disable workflow"). Hinweis: GitHub deaktiviert
+# geplante Workflows automatisch nach 60 Tagen ohne Repo-Aktivitaet.
+name: Keep-alive
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Render-Server anpingen
+        run: |
+          curl -sS --max-time 120 https://spar-spar-schiene.onrender.com/api/health || true

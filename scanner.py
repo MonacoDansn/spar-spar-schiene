@@ -129,7 +129,10 @@ class ScanJob:
         self.cancelled = False
         self.finished = False
         self.results = {}  # key -> result dict (dedupe, cheapest wins)
-        self.client = oebb.OebbClient(max_rps=float(params.get("maxRps", 24)))
+        # Defaults per Umgebung drosselbar: Render-Free hat nur 0,1 CPU und teilt
+        # sich die Ausgangs-IP mit anderen Kunden - dort gelten sanftere Werte.
+        default_rps = float(os.environ.get("SPAR_MAX_RPS", "24"))
+        self.client = oebb.OebbClient(max_rps=float(params.get("maxRps", default_rps)))
         self.skip_travel_action = False
         self.timeout_streak = 0  # Zeitueberschreitungen in Folge (Abbruch-Kriterium)
         self.stats_lock = threading.Lock()
@@ -358,7 +361,8 @@ class ScanJob:
             return
         done = 0
         found = 0
-        with ThreadPoolExecutor(max_workers=int(self.params.get("workers", 20))) as pool:
+        default_workers = int(os.environ.get("SPAR_WORKERS", "20"))
+        with ThreadPoolExecutor(max_workers=int(self.params.get("workers", default_workers))) as pool:
             futures = {pool.submit(worker, item): item for item in items}
             for fut in as_completed(futures):
                 if self.cancelled:
@@ -542,6 +546,11 @@ def _merge_extras(candidates, extras):
 def start_scan(params):
     job = ScanJob(params)
     with JOBS_LOCK:
+        # Fertige alte Jobs aufraeumen (nur die 3 juengsten behalten): die Instanz
+        # kann wochenlang laufen, sonst wachsen Events/Ergebnisse im RAM unbegrenzt.
+        finished = [k for k, j in JOBS.items() if j.finished]
+        for k in finished[:-3]:
+            del JOBS[k]
         JOBS[job.id] = job
     job.thread.start()
     return job
@@ -550,3 +559,8 @@ def start_scan(params):
 def get_job(job_id):
     with JOBS_LOCK:
         return JOBS.get(job_id)
+
+
+def jobs_snapshot():
+    with JOBS_LOCK:
+        return list(JOBS.values())

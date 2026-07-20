@@ -11,3 +11,9 @@ services:
         value: 0.0.0.0
       - key: SPAR_PASSWORD
         sync: false
+      # Free-Tier hat nur 0,1 CPU und eine geteilte Ausgangs-IP:
+      # weniger parallele Worker und sanfteres Rate-Limit als lokal
+      - key: SPAR_WORKERS
+        value: "8"
+      - key: SPAR_MAX_RPS
+        value: "8"

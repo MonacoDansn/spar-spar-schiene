@@ -8,7 +8,9 @@ import base64
 import json
 import os
 import threading
+import time
 import urllib.parse
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import oebb
@@ -19,6 +21,9 @@ PORT = int(os.environ.get("PORT", "8325"))
 HOST = os.environ.get("HOST", "127.0.0.1")
 PASSWORD = os.environ.get("SPAR_PASSWORD")
 PUBLIC = os.path.join(os.path.dirname(__file__), "public")
+# Render setzt RENDER_EXTERNAL_URL automatisch; lokal bleibt sie leer.
+EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL")
+KEEPALIVE_SECS = int(os.environ.get("SPAR_KEEPALIVE_SECS", "240"))
 
 shared_client = oebb.OebbClient(max_rps=8)
 
@@ -200,10 +205,31 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
 
+def _keep_awake():
+    """Render Free legt die Instanz nach 15 min ohne EINGEHENDE Anfragen schlafen -
+    auch mitten im Scan (offene SSE-Streams zaehlen nicht zuverlaessig als Traffic).
+    Solange ein Scan laeuft, haelt ein Selbst-Ping ueber die oeffentliche URL
+    (durch Renders Proxy = eingehender Traffic) die Instanz wach."""
+    while True:
+        time.sleep(KEEPALIVE_SECS)
+        if not any(not j.finished for j in scanner.jobs_snapshot()):
+            continue
+        try:
+            req = urllib.request.Request(EXTERNAL_URL + "/api/health",
+                                         headers={"Connection": "close"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                r.read()
+            print("Keep-alive-Ping gesendet (Scan laeuft).")
+        except Exception as e:
+            print(f"Keep-alive-Ping fehlgeschlagen: {e}")
+
+
 def main():
     print("Lade Stationsdatenbank...")
     n = len(stationsdb.load_stations())
     print(f"{n} Stationen bereit.")
+    if EXTERNAL_URL:
+        threading.Thread(target=_keep_awake, daemon=True).start()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Spar Spar Schiene laeuft: http://{'localhost' if HOST == '127.0.0.1' else HOST}:{PORT}"
           + (" (Passwortschutz aktiv)" if PASSWORD else ""))
