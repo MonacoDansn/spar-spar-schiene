@@ -30,7 +30,7 @@ OVERPASS_URLS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
 ]
-PLACES_CACHE_FILE = os.path.join(os.path.dirname(__file__), "data", "places_cache.json")
+PLACES_CACHE_FILE = os.path.join(stationsdb.DATA_DIR, "places_cache.json")
 _places_cache = None
 _places_lock = threading.Lock()
 
@@ -105,7 +105,7 @@ class EtaTracker:
             return remaining_items / rate
 
 
-BUS_CACHE_FILE = os.path.join(os.path.dirname(__file__), "data", "bus_cache.json")
+BUS_CACHE_FILE = os.path.join(stationsdb.DATA_DIR, "bus_cache.json")
 _bus_cache = None
 _bus_cache_lock = threading.Lock()
 

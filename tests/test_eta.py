@@ -106,5 +106,40 @@ class TestSnapshot(unittest.TestCase):
         self.assertTrue(job.finished)
 
 
+import importlib
+import os
+
+
+class TestEnvOverrides(unittest.TestCase):
+    """Fuer die lokale Android-App: Daten-/Public-Pfade per Env uebersteuerbar."""
+
+    def _reload_all(self):
+        import scanner as sc
+        import server as sv
+        import stations as st
+        importlib.reload(st)
+        importlib.reload(sc)
+        importlib.reload(sv)
+        return st, sc, sv
+
+    def test_env_overrides_wirken_und_defaults_bleiben(self):
+        os.environ["SPAR_DATA_DIR"] = "/tmp/spar-data"
+        os.environ["SPAR_PUBLIC_DIR"] = "/tmp/spar-public"
+        try:
+            st, sc, sv = self._reload_all()
+            self.assertEqual(st.DATA_DIR, "/tmp/spar-data")
+            self.assertEqual(sc.PLACES_CACHE_FILE,
+                             os.path.join("/tmp/spar-data", "places_cache.json"))
+            self.assertEqual(sc.BUS_CACHE_FILE,
+                             os.path.join("/tmp/spar-data", "bus_cache.json"))
+            self.assertEqual(sv.PUBLIC, "/tmp/spar-public")
+        finally:
+            del os.environ["SPAR_DATA_DIR"]
+            del os.environ["SPAR_PUBLIC_DIR"]
+            st, sc, sv = self._reload_all()
+        self.assertTrue(st.DATA_DIR.endswith("data"))
+        self.assertTrue(sv.PUBLIC.endswith("public"))
+
+
 if __name__ == "__main__":
     unittest.main()

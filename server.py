@@ -20,7 +20,7 @@ import stations as stationsdb
 PORT = int(os.environ.get("PORT", "8325"))
 HOST = os.environ.get("HOST", "127.0.0.1")
 PASSWORD = os.environ.get("SPAR_PASSWORD")
-PUBLIC = os.path.join(os.path.dirname(__file__), "public")
+PUBLIC = os.environ.get("SPAR_PUBLIC_DIR") or os.path.join(os.path.dirname(__file__), "public")
 # Render setzt RENDER_EXTERNAL_URL automatisch; lokal bleibt sie leer.
 EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL")
 KEEPALIVE_SECS = int(os.environ.get("SPAR_KEEPALIVE_SECS", "240"))

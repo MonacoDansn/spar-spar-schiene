@@ -5,7 +5,9 @@ import json
 import math
 import os
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+# Uebersteuerbar fuer die lokale Android-App: Code liegt dort im (nicht
+# beschreibbaren) APK, Daten/Caches muessen in den App-Speicher.
+DATA_DIR = os.environ.get("SPAR_DATA_DIR") or os.path.join(os.path.dirname(__file__), "data")
 RAW_CSV = os.path.join(DATA_DIR, "stations_full.csv")
 CACHE_JSON = os.path.join(DATA_DIR, "stations.json")
 
