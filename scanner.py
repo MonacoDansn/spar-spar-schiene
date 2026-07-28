@@ -78,6 +78,33 @@ def _osm_places(lat, lon, radius_km):
             pass
     return places
 
+class EtaTracker:
+    """Schaetzt die Restzeit aus einem gleitenden Fenster von Item-Abschluessen."""
+
+    def __init__(self, window=30, min_samples=5):
+        self.window = window
+        self.min_samples = min_samples
+        self._stamps = []
+        self._lock = threading.Lock()
+
+    def record(self, ts=None):
+        with self._lock:
+            self._stamps.append(time.time() if ts is None else ts)
+            if len(self._stamps) > self.window:
+                self._stamps.pop(0)
+
+    def estimate(self, remaining_items):
+        """Sekunden bis fertig oder None (zu wenig Daten / nichts offen)."""
+        with self._lock:
+            if len(self._stamps) < self.min_samples or remaining_items <= 0:
+                return None
+            span = self._stamps[-1] - self._stamps[0]
+            if span <= 0:
+                return None
+            rate = (len(self._stamps) - 1) / span
+            return remaining_items / rate
+
+
 BUS_CACHE_FILE = os.path.join(os.path.dirname(__file__), "data", "bus_cache.json")
 _bus_cache = None
 _bus_cache_lock = threading.Lock()
