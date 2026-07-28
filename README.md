@@ -33,6 +33,9 @@ Keine Installation nötig — nur Python 3 (Standardbibliothek).
 8. **Scan starten** — Ergebnisse erscheinen live; Sortierung wählbar (Preis aufsteigend /
    Ersparnis absteigend). Über die Checkboxen bei den Soll-Verbindungen lässt sich die
    Ergebnisliste auf bestimmte Züge filtern.
+9. Während des Scans zeigen Fortschrittsbalken **und Restzeit-Schätzung** den
+   Stand; die Ergebnisse sind in *Frühere Abfahrtsbahnhöfe*, *Spätere
+   Ankunftsbahnhöfe* und *Kreuzverbindungen* gegliedert.
 
 ## Wie es funktioniert
 
@@ -130,6 +133,10 @@ jedem Push automatisch die APK und veröffentlicht sie als Release **`apk-latest
 
 - Beim ersten Start fragt die App nach der **Server-URL**: die Render-URL
   (voreingestellt) oder daheim `http://<PC-IP>:8325`
+- **Live-Benachrichtigung**: Während eines Scans zeigt die App eine
+  System-Benachrichtigung mit Fortschritt und Restzeit — auch bei
+  ausgeschaltetem Display (die App fragt beim ersten Scan nach der
+  Benachrichtigungs-Berechtigung).
 - Passwort wird einmal eingegeben und gespeichert (Menü: Zugangsdaten löschen)
 - Installation am Handy: APK herunterladen → Installation aus unbekannter Quelle
   erlauben → installieren. Da die APK debug-signiert ist, bei App-Updates vorher
