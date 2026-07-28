@@ -29,6 +29,9 @@ jobs:
         with:
           gradle-version: "8.9"
 
+      - name: Stationsdatenbank generieren (stations.json ist gitignored)
+        run: python -c "import stations; print(len(stations.load_stations()), 'Stationen')"
+
       - name: APKs bauen (debug-signiert, direkt installierbar)
         working-directory: android
         run: gradle assembleDebug

@@ -30,6 +30,7 @@ public class LocalMainActivity extends Activity {
 
     static final String BASE_URL = "http://127.0.0.1:8325";
     private static volatile boolean serverStarted = false;  // pro Prozess nur 1x binden
+    private static volatile String serverError = null;      // Fehler aus dem Server-Thread
 
     private WebView webView;
 
@@ -49,14 +50,17 @@ public class LocalMainActivity extends Activity {
     }
 
     private void bootAndLoad() {
+        // Throwable statt Exception: UnsatisfiedLinkError & Co. wuerden sonst als
+        // unbehandelte Thread-Exception den ganzen Prozess beenden ("App geht sofort zu").
         try {
             File root = prepareFiles();
             startPythonServer(root);
             waitForPort(30_000);
             runOnUiThread(() -> webView.loadUrl(BASE_URL));
-        } catch (Exception e) {
+        } catch (Throwable e) {
+            String detail = serverError != null ? serverError : String.valueOf(e);
             runOnUiThread(() -> showMessage("&#9888;&#65039; Start fehlgeschlagen",
-                    String.valueOf(e).replace("<", "&lt;")));
+                    detail.replace("<", "&lt;")));
         }
     }
 
@@ -71,7 +75,10 @@ public class LocalMainActivity extends Activity {
 
     private void copyAssetDir(String assetPath, File target) throws Exception {
         String[] entries = getAssets().list(assetPath);
-        if (entries == null || entries.length == 0) return;
+        if (entries == null || entries.length == 0) {
+            throw new RuntimeException("App-Paket unvollstaendig: assets/" + assetPath
+                    + " fehlt (Build-Fehler - bitte neue APK vom Release laden)");
+        }
         target.mkdirs();
         for (String name : entries) {
             String child = assetPath + "/" + name;
@@ -99,7 +106,15 @@ public class LocalMainActivity extends Activity {
         environ.callAttr("__setitem__", "SPAR_PUBLIC_DIR", new File(root, "public").getAbsolutePath());
         environ.callAttr("__setitem__", "HOST", "127.0.0.1");
         environ.callAttr("__setitem__", "PORT", "8325");
-        Thread t = new Thread(() -> py.getModule("server").callAttr("main"));
+        Thread t = new Thread(() -> {
+            // Ohne try/catch wuerde eine Python-Exception (z.B. fehlende Datendatei)
+            // als unbehandelte Java-Thread-Exception den ganzen Prozess beenden.
+            try {
+                py.getModule("server").callAttr("main");
+            } catch (Throwable e) {
+                serverError = "Lokaler Server abgestuerzt: " + e;
+            }
+        });
         t.setDaemon(true);
         t.start();
     }
@@ -107,6 +122,7 @@ public class LocalMainActivity extends Activity {
     private void waitForPort(long timeoutMs) throws Exception {
         long deadline = System.currentTimeMillis() + timeoutMs;
         while (System.currentTimeMillis() < deadline) {
+            if (serverError != null) throw new RuntimeException(serverError);
             try (Socket s = new Socket()) {
                 s.connect(new InetSocketAddress("127.0.0.1", 8325), 1000);
                 return;
