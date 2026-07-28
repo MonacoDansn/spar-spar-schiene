@@ -186,7 +186,10 @@ scanBtn.onclick = async () => {
   notifyApp("scanStarted", data.jobId);
   state.results = [];
   state.lastSeq = -1;
-  document.getElementById("results-table").querySelector("tbody").innerHTML = "";
+  document.querySelectorAll(".result-group").forEach((g) => {
+    g.style.display = "none";
+    g.querySelector("tbody").innerHTML = "";
+  });
   document.getElementById("soll-table").querySelector("tbody").innerHTML = "";
   document.getElementById("log").textContent = "";
   document.getElementById("progress-card").style.display = "";
@@ -382,13 +385,10 @@ function renderResults() {
     }
   });
 
-  const tbody = document.getElementById("results-table").querySelector("tbody");
-  tbody.innerHTML = "";
-  // Bestpreis-Markierung: erstes Ticket, dessen Preis die GANZE Strecke abdeckt
-  const bestIdx = sorted.findIndex((r) => !r.reduced);
-  sorted.forEach((r, i) => {
-    const tr = document.createElement("tr");
-    if (i === bestIdx) tr.classList.add("best");
+  // Bestpreis global: erstes Ticket der Sortierung, dessen Preis die GANZE Strecke abdeckt
+  const best = sorted.find((r) => !r.reduced);
+
+  const rowHtml = (r) => {
     const saving = r.saving != null ? r.saving : 0;
     const savingHtml = saving > 0
       ? `<span class="saving-pos">-${fmtPrice(saving).slice(2)} €</span>`
@@ -397,15 +397,28 @@ function renderResults() {
       ? `<span class="tag tag-warn" title="${r.reducedScope || ""}">⚠ Teilstrecke</span>` +
         (r.reducedScope ? `<br><small class="warn-text">Preis gilt nur: ${r.reducedScope}</small>` : "")
       : "";
-    tr.innerHTML =
-      `<td class="price">${fmtPrice(r.price)}${r.sparschiene ? '<span class="tag">Sparschiene</span>' : ""}${reducedHtml}</td>` +
-      `<td>${savingHtml}</td>` +
-      `<td>${r.ticketFrom}<br><small>ab ${fmtTime(r.ticketDep)}</small></td>` +
-      `<td>${r.ticketTo}<br><small>an ${fmtTime(r.ticketArr)}</small></td>` +
-      `<td class="trains">${r.trains.join(" → ")}</td>` +
-      `<td>${fmtTime(r.boardTime)} <small>(dein Bahnhof)</small></td>` +
-      `<td><a href="https://shop.oebbtickets.at/de/ticket" target="_blank">buchen ↗</a></td>`;
-    tbody.appendChild(tr);
+    return `<td class="c-price price">${fmtPrice(r.price)}${r.sparschiene ? '<span class="tag">Sparschiene</span>' : ""}${reducedHtml}</td>` +
+      `<td class="c-saving">${savingHtml}</td>` +
+      `<td class="c-from">${r.ticketFrom}<br><small>ab ${fmtTime(r.ticketDep)}</small></td>` +
+      `<td class="c-to">${r.ticketTo}<br><small>an ${fmtTime(r.ticketArr)}</small></td>` +
+      `<td class="c-trains trains">${r.trains.join(" → ")}</td>` +
+      `<td class="c-board">${fmtTime(r.boardTime)} <small>(dein Bahnhof)</small></td>` +
+      `<td class="c-book"><a href="https://shop.oebbtickets.at/de/ticket" target="_blank">buchen ↗</a></td>`;
+  };
+
+  ["A", "B", "C"].forEach((phase) => {
+    const group = document.getElementById("group-" + phase);
+    const rows = sorted.filter((r) => r.phase === phase);
+    group.style.display = rows.length ? "" : "none";
+    group.querySelector(".group-count").textContent = `(${rows.length})`;
+    const tbody = group.querySelector("tbody");
+    tbody.innerHTML = "";
+    rows.forEach((r) => {
+      const tr = document.createElement("tr");
+      if (r === best) tr.classList.add("best");
+      tr.innerHTML = rowHtml(r);
+      tbody.appendChild(tr);
+    });
   });
   document.getElementById("result-count").textContent =
     sorted.length === state.results.length

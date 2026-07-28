@@ -104,13 +104,36 @@
         <option value="saving">Ersparnis (höchste zuerst)</option>
       </select>
     </p>
-    <table id="results-table">
-      <thead><tr>
-        <th>Preis</th><th>Ersparnis</th><th>Ticket von</th><th>Ticket nach</th>
-        <th>Dein Zug</th><th>Einstieg</th><th></th>
-      </tr></thead>
-      <tbody></tbody>
-    </table>
+    <div class="result-group" id="group-A" style="display:none">
+      <h3>🚉 Frühere Abfahrtsbahnhöfe <span class="group-count"></span></h3>
+      <table class="results-table">
+        <thead><tr>
+          <th>Preis</th><th>Ersparnis</th><th>Ticket von</th><th>Ticket nach</th>
+          <th>Dein Zug</th><th>Einstieg</th><th></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="result-group" id="group-B" style="display:none">
+      <h3>🏁 Spätere Ankunftsbahnhöfe <span class="group-count"></span></h3>
+      <table class="results-table">
+        <thead><tr>
+          <th>Preis</th><th>Ersparnis</th><th>Ticket von</th><th>Ticket nach</th>
+          <th>Dein Zug</th><th>Einstieg</th><th></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="result-group" id="group-C" style="display:none">
+      <h3>✖️ Kreuzverbindungen <span class="group-count"></span></h3>
+      <table class="results-table">
+        <thead><tr>
+          <th>Preis</th><th>Ersparnis</th><th>Ticket von</th><th>Ticket nach</th>
+          <th>Dein Zug</th><th>Einstieg</th><th></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
   </section>
 </main>
 
