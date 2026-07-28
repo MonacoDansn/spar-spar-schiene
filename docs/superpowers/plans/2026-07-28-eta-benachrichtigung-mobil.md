@@ -18,7 +18,7 @@
 - Test: `tests/test_eta.py` (neu)
 - Modify: `scanner.py` (Klasse `EtaTracker` nach den Imports, vor `JOBS`)
 
-- [ ] **Step 1: Fehlschlagenden Test schreiben**
+- [x] **Step 1: Fehlschlagenden Test schreiben**
 
 `tests/test_eta.py`:
 
@@ -58,12 +58,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: Test laufen lassen — muss fehlschlagen**
+- [x] **Step 2: Test laufen lassen — muss fehlschlagen**
 
 Run (im Repo-Root): `python -m unittest discover -s tests -t . -v`
 Expected: `ImportError: cannot import name 'EtaTracker'`
 
-- [ ] **Step 3: Minimale Implementierung**
+- [x] **Step 3: Minimale Implementierung**
 
 In `scanner.py` nach den Modul-Konstanten (`PLACES_CACHE_FILE`-Block) einfügen:
 
@@ -95,12 +95,12 @@ class EtaTracker:
             return remaining_items / rate
 ```
 
-- [ ] **Step 4: Test laufen lassen — muss bestehen**
+- [x] **Step 4: Test laufen lassen — muss bestehen**
 
 Run: `python -m unittest discover -s tests -t . -v`
 Expected: `OK` (4 Tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests/test_eta.py scanner.py
@@ -115,7 +115,7 @@ git commit -m "EtaTracker: Restzeit aus gleitendem Abschluss-Fenster"
 - Test: `tests/test_eta.py` (erweitern)
 - Modify: `scanner.py` (`ScanJob.__init__`, neue Methode `_emit_progress`, `_phase_scan`, `_augment_bus`, `_run`)
 
-- [ ] **Step 1: Fehlschlagenden Test ergänzen**
+- [x] **Step 1: Fehlschlagenden Test ergänzen**
 
 In `tests/test_eta.py` anhängen:
 
@@ -154,12 +154,12 @@ class TestPhaseState(unittest.TestCase):
         self.assertFalse(job.phase_state["etaMin"])
 ```
 
-- [ ] **Step 2: Test laufen lassen — muss fehlschlagen**
+- [x] **Step 2: Test laufen lassen — muss fehlschlagen**
 
 Run: `python -m unittest discover -s tests -t . -v`
 Expected: `AttributeError: 'ScanJob' object has no attribute 'eta_tracker'` (o. ä.)
 
-- [ ] **Step 3: Implementierung**
+- [x] **Step 3: Implementierung**
 
 In `ScanJob.__init__` nach `self.stats = {...}` einfügen:
 
@@ -217,12 +217,12 @@ In `_run`:
         self.c_known = True
 ```
 
-- [ ] **Step 4: Tests laufen lassen — müssen bestehen**
+- [x] **Step 4: Tests laufen lassen — müssen bestehen**
 
 Run: `python -m unittest discover -s tests -t . -v`
 Expected: `OK` (6 Tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests/test_eta.py scanner.py
@@ -237,7 +237,7 @@ git commit -m "ScanJob: Fortschritts-Zustand mit Restzeit-Schaetzung (ETA)"
 - Test: `tests/test_eta.py` (erweitern)
 - Modify: `server.py:128-135` (GET `/api/scan/<id>`)
 
-- [ ] **Step 1: Fehlschlagenden Test ergänzen**
+- [x] **Step 1: Fehlschlagenden Test ergänzen**
 
 Der Handler ist eng mit dem Socket verzahnt; getestet wird die neue, ausgelagerte
 Snapshot-Funktion. In `tests/test_eta.py` anhängen:
@@ -267,12 +267,12 @@ class TestSnapshot(unittest.TestCase):
         self.assertEqual(snap["phase"]["name"], "A")
 ```
 
-- [ ] **Step 2: Test laufen lassen — muss fehlschlagen**
+- [x] **Step 2: Test laufen lassen — muss fehlschlagen**
 
 Run: `python -m unittest discover -s tests -t . -v`
 Expected: `AttributeError: module 'server' has no attribute 'job_snapshot'`
 
-- [ ] **Step 3: Implementierung**
+- [x] **Step 3: Implementierung**
 
 In `server.py` auf Modulebene (unter `MIME = {...}`) einfügen:
 
@@ -298,12 +298,12 @@ Den bestehenden Snapshot-Zweig in `do_GET` ersetzen:
             self._json(job_snapshot(job, light="light" in qs))
 ```
 
-- [ ] **Step 4: Tests laufen lassen — müssen bestehen**
+- [x] **Step 4: Tests laufen lassen — müssen bestehen**
 
 Run: `python -m unittest discover -s tests -t . -v`
 Expected: `OK` (8 Tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests/test_eta.py server.py
@@ -317,7 +317,7 @@ git commit -m "Snapshot-Endpoint: phase-Objekt und ?light=1 ohne results"
 **Files:**
 - Modify: `public/app.js` (progress-Handler, `scanBtn.onclick`, `finishScan`)
 
-- [ ] **Step 1: ETA-Formatierung und Brücken-Helfer einbauen**
+- [x] **Step 1: ETA-Formatierung und Brücken-Helfer einbauen**
 
 In `public/app.js` unter `fmtPrice` einfügen:
 
@@ -357,13 +357,13 @@ In `finishScan()` als erste Zeile:
   notifyApp("scanFinished");
 ```
 
-- [ ] **Step 2: Manuell verifizieren**
+- [x] **Step 2: Manuell verifizieren**
 
 Server lokal starten (`python server.py`), Scan Salzburg Hbf → Wien Hbf,
 Radius 15/15, Bus aus. Expected: Fortschrittstext zeigt nach einigen Sekunden
 `… · noch mind. ~X min`; in Phase C ohne „mind.". Keine Konsolen-Fehler.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add public/app.js
@@ -378,7 +378,7 @@ git commit -m "Web-UI: Restzeit im Fortschritt + JS-Bruecke zur Android-App"
 - Modify: `public/index.html:97-114` (results-card)
 - Modify: `public/app.js` (`renderResults`)
 
-- [ ] **Step 1: HTML umbauen**
+- [x] **Step 1: HTML umbauen**
 
 In `public/index.html` innerhalb `#results-card` die bisherige
 `<table id="results-table">…</table>` ersetzen durch drei Gruppen:
@@ -416,7 +416,7 @@ In `public/index.html` innerhalb `#results-card` die bisherige
     </div>
 ```
 
-- [ ] **Step 2: renderResults auf Gruppen umstellen**
+- [x] **Step 2: renderResults auf Gruppen umstellen**
 
 In `public/app.js` den Tabellen-Teil von `renderResults` (ab `const tbody = …`
 bis zum Ende der `sorted.forEach`-Schleife) ersetzen durch:
@@ -461,7 +461,7 @@ bis zum Ende der `sorted.forEach`-Schleife) ersetzen durch:
 
 (Die Zeilen mit `result-count` und `results-card` am Ende der Funktion bleiben.)
 
-- [ ] **Step 3: Styling für Gruppen-Überschriften**
+- [x] **Step 3: Styling für Gruppen-Überschriften**
 
 In `public/style.css` unter `.card h2 {…}`:
 
@@ -471,14 +471,14 @@ In `public/style.css` unter `.card h2 {…}`:
 .group-count { color: var(--gray); font-weight: 400; }
 ```
 
-- [ ] **Step 4: Manuell verifizieren**
+- [x] **Step 4: Manuell verifizieren**
 
 Scan wie in Task 4. Expected: Ergebnisse erscheinen in „🚉 Frühere
 Abfahrtsbahnhöfe" und (nach Phase B/C) in den weiteren Abschnitten; leere
 Abschnitte unsichtbar; genau eine grüne Bestpreis-Zeile insgesamt; Zug-Filter
 (Checkboxen) und Sortierung wirken über alle Abschnitte.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add public/index.html public/app.js public/style.css
@@ -493,7 +493,7 @@ git commit -m "Web-UI: Ergebnisse nach Abfahrt/Ankunft/Kreuzverbindung getrennt"
 - Modify: `public/style.css` (Media-Query am Dateiende)
 - Modify: `public/app.js` (Klassen an Soll-Tabellen-Zellen)
 
-- [ ] **Step 1: Soll-Tabellen-Zellen Klassen geben**
+- [x] **Step 1: Soll-Tabellen-Zellen Klassen geben**
 
 In `handleEvent`, Case `soll`, die `insertAdjacentHTML`-Zeile ersetzen:
 
@@ -506,7 +506,7 @@ In `handleEvent`, Case `soll`, die `insertAdjacentHTML`-Zeile ersetzen:
 
 Und beim Checkbox-`td` davor: `td.className = "s-check";`
 
-- [ ] **Step 2: Mobile-CSS anhängen**
+- [x] **Step 2: Mobile-CSS anhängen**
 
 Am Ende von `public/style.css`:
 
@@ -570,7 +570,7 @@ Hinweis: `s-dep` und `s-arr` teilen sich Grid-Zelle (Zeile 1, Spalte 2) —
 Überlappung auftritt, `grid-template-columns: auto 1fr auto auto` und `s-arr`
 in eigene Spalte legen (bei Verifikation prüfen).
 
-- [ ] **Step 3: Verifizieren bei 375 px**
+- [x] **Step 3: Verifizieren bei 375 px**
 
 Browser-Pane auf 375×812 stellen, Seite laden, Scan starten, Ergebnisse
 abwarten. In der Konsole:
@@ -582,7 +582,7 @@ document.documentElement.scrollWidth <= document.documentElement.clientWidth
 Expected: `true` in allen Zuständen (Formular / Scan läuft / Ergebnisse);
 Ergebnisse als Karten mit Preis oben links, Ersparnis oben rechts.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add public/style.css public/app.js
@@ -596,7 +596,7 @@ git commit -m "Mobil-Layout: Karten statt Tabellen, kein horizontales Scrollen"
 **Files:**
 - Modify: `android/app/src/main/java/at/sparsparschiene/app/MainActivity.java`
 
-- [ ] **Step 1: Brücke implementieren**
+- [x] **Step 1: Brücke implementieren**
 
 Neue Imports:
 
@@ -642,7 +642,7 @@ Neue innere Klasse (vor `baseUrl()`):
     }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add android/app/src/main/java/at/sparsparschiene/app/MainActivity.java
@@ -658,7 +658,7 @@ git commit -m "Android: JS-Bruecke SparApp startet Fortschritts-Service"
 - Modify: `android/app/src/main/AndroidManifest.xml`
 - Modify: `android/app/build.gradle:13-14` (versionCode/-Name)
 
-- [ ] **Step 1: Service anlegen**
+- [x] **Step 1: Service anlegen**
 
 ```java
 package at.sparsparschiene.app;
@@ -823,7 +823,7 @@ public class ScanWatchService extends Service {
 }
 ```
 
-- [ ] **Step 2: Manifest erweitern**
+- [x] **Step 2: Manifest erweitern**
 
 `android/app/src/main/AndroidManifest.xml` — nach der INTERNET-Permission:
 
@@ -842,17 +842,17 @@ Innerhalb `<application>` nach dem `<activity>`-Block:
             android:foregroundServiceType="dataSync" />
 ```
 
-- [ ] **Step 3: App-Version anheben**
+- [x] **Step 3: App-Version anheben**
 
 `android/app/build.gradle`: `versionCode 2`, `versionName "1.1"`.
 
-- [ ] **Step 4: Lokaler Syntax-Check (kein Android-SDK lokal)**
+- [x] **Step 4: Lokaler Syntax-Check (kein Android-SDK lokal)**
 
 Kein lokales Gradle/SDK verfügbar — Gate ist der CI-Build (Task 9).
 Sichtprüfung: Imports vollständig, `R.drawable.ic_fg` existiert
 (`android/app/src/main/res/drawable/ic_fg.xml`).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add android/
@@ -866,7 +866,7 @@ git commit -m "Android: Foreground-Service mit Live-Fortschritts-Benachrichtigun
 **Files:**
 - Modify: `README.md` (Bedienung/Android-Abschnitt)
 
-- [ ] **Step 1: README ergänzen**
+- [x] **Step 1: README ergänzen**
 
 Im Abschnitt „Bedienung" nach Punkt 8 anfügen:
 
@@ -885,7 +885,7 @@ Im Abschnitt „Android-App (APK)" als neuen Punkt:
   Benachrichtigungs-Berechtigung).
 ```
 
-- [ ] **Step 2: Alle Tests + kompletter lokaler E2E-Lauf**
+- [x] **Step 2: Alle Tests + kompletter lokaler E2E-Lauf**
 
 ```bash
 python -m unittest discover -s tests -t . -v   # erwartet: OK
@@ -896,14 +896,14 @@ Dann Server neu starten, Scan im Browser (Desktop-Breite und 375 px) und
 prüfen: ETA sichtbar, drei Abschnitte, kein Horizontal-Scroll, `?light=1`
 liefert `phase` ohne `results` (curl).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add README.md
 git commit -m "README: ETA, gegliederte Ergebnisse, Live-Benachrichtigung"
 ```
 
-- [ ] **Step 4: Push (mit User abstimmen) + CI beobachten**
+- [x] **Step 4: Push (mit User abstimmen) + CI beobachten**
 
 Nach Freigabe: `git push` → Render-Deploy (Web) und GitHub-Actions-APK-Build
 (`android/**` geändert → Workflow läuft). Build-Ergebnis prüfen; APK-Release
