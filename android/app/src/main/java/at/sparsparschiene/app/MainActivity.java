@@ -4,12 +4,15 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.webkit.HttpAuthHandler;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
@@ -36,6 +39,7 @@ public class MainActivity extends Activity {
         webView = new WebView(this);
         webView.getSettings().setJavaScriptEnabled(true);
         webView.getSettings().setDomStorageEnabled(true);
+        webView.addJavascriptInterface(new SparBridge(), "SparApp");
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
@@ -82,6 +86,32 @@ public class MainActivity extends Activity {
             showUrlDialog("Server-URL der Spar-Spar-Schiene-Instanz:");
         } else {
             webView.loadUrl(baseUrl());
+        }
+    }
+
+    /** Von public/app.js aufgerufen (window.SparApp) - startet den Fortschritts-Service. */
+    private class SparBridge {
+        @JavascriptInterface
+        public void scanStarted(String jobId) {
+            runOnUiThread(() -> {
+                if (Build.VERSION.SDK_INT >= 33 &&
+                        checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                                != PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(
+                            new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 1);
+                }
+                Intent i = new Intent(MainActivity.this, ScanWatchService.class);
+                i.putExtra("jobId", jobId);
+                i.putExtra("baseUrl", baseUrl());
+                i.putExtra("user", prefs.getString("auth_user", null));
+                i.putExtra("pass", prefs.getString("auth_pass", null));
+                startForegroundService(i);
+            });
+        }
+
+        @JavascriptInterface
+        public void scanFinished() {
+            // Nur Hinweis - der Service erkennt das Ende selbst ueber den Snapshot.
         }
     }
 
