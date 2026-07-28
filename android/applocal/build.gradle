@@ -3,19 +3,22 @@ plugins {
     id 'com.chaquo.python'
 }
 
-// Eine Quelle fuer beide Apps: Python-Code, Oberflaeche und Stationsdaten
-// werden beim Bauen aus dem Repo-Root hierher synchronisiert.
-tasks.register('syncSparPython', Sync) {
-    from("${rootDir}/../") {
+// Eine Quelle fuer beide Apps: Python-Code, Oberflaeche und Stationsdaten werden
+// beim Bauen aus dem Repo-Root synchronisiert. Bewusst zur Konfigurationszeit,
+// damit die Verzeichnisse existieren, bevor Chaquopy/AGP sie einlesen.
+def sparRoot = "${rootDir}/.."
+def sparPython = layout.buildDirectory.dir('spar-python').get().asFile
+def sparAssets = layout.buildDirectory.dir('spar-assets').get().asFile
+copy {
+    from(sparRoot) {
         include 'server.py', 'scanner.py', 'oebb.py', 'stations.py'
     }
-    into layout.buildDirectory.dir('spar-python')
+    into sparPython
 }
-
-tasks.register('syncSparAssets', Sync) {
-    from("${rootDir}/../public") { into 'public' }
-    from("${rootDir}/../data/stations.json") { into 'data' }
-    into layout.buildDirectory.dir('spar-assets')
+copy {
+    from("${sparRoot}/public") { into 'public' }
+    from("${sparRoot}/data/stations.json") { into 'data' }
+    into sparAssets
 }
 
 android {
@@ -44,8 +47,7 @@ android {
     }
     sourceSets {
         main {
-            python.srcDirs = ["${buildDir}/spar-python"]
-            assets.srcDirs += ["${buildDir}/spar-assets"]
+            assets.srcDirs += [sparAssets]
         }
     }
 }
@@ -53,8 +55,9 @@ android {
 chaquopy {
     defaultConfig {
         // CI (ubuntu-latest) stellt python3 bereit
-        buildPython "python3"
+        buildPython("python3")
+    }
+    sourceSets.getByName("main") {
+        srcDirs = [sparPython.absolutePath]
     }
 }
-
-preBuild.dependsOn 'syncSparPython', 'syncSparAssets'
