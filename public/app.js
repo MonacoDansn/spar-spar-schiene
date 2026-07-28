@@ -305,6 +305,7 @@ function handleEvent(ev) {
         state.sollSelected.add(key);
         const tr = document.createElement("tr");
         const td = document.createElement("td");
+        td.className = "s-check";
         const cb = document.createElement("input");
         cb.type = "checkbox";
         cb.checked = true;
@@ -316,9 +317,9 @@ function handleEvent(ev) {
         td.appendChild(cb);
         tr.appendChild(td);
         tr.insertAdjacentHTML("beforeend",
-          `<td>${fmtDate(c.dep)} ${fmtTime(c.dep)}</td><td>${fmtTime(c.arr)}</td>` +
-          `<td class="trains">${c.trains.join(" → ")}</td>` +
-          `<td class="price">${c.price != null ? fmtPrice(c.price) : "–"}${c.sparschiene ? '<span class="tag">Sparschiene</span>' : ""}</td>`);
+          `<td class="s-dep">${fmtDate(c.dep)} ${fmtTime(c.dep)}</td><td class="s-arr">${fmtTime(c.arr)}</td>` +
+          `<td class="s-trains trains">${c.trains.join(" → ")}</td>` +
+          `<td class="s-price price">${c.price != null ? fmtPrice(c.price) : "–"}${c.sparschiene ? '<span class="tag">Sparschiene</span>' : ""}</td>`);
         tbody.appendChild(tr);
       });
       document.getElementById("soll-card").style.display = "";
