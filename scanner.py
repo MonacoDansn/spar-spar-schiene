@@ -164,6 +164,10 @@ class ScanJob:
         self.timeout_streak = 0  # Zeitueberschreitungen in Folge (Abbruch-Kriterium)
         self.stats_lock = threading.Lock()
         self.stats = {"queries": 0, "empty": 0, "conns": 0, "matches": 0, "price_fail": 0}
+        self.eta_tracker = EtaTracker()
+        self.phase_state = None    # letzter Fortschritt inkl. ETA (fuer Snapshot/App)
+        self.pending_phases = {}   # bekannte, noch nicht gestartete Phasen: name -> total
+        self.c_known = False       # Umfang von Phase C bekannt -> ETA nicht mehr "mind."
         self.thread = threading.Thread(target=self._run_safe, daemon=True)
 
     def _stat(self, **kwargs):
@@ -190,6 +194,18 @@ class ScanJob:
             if len(self.events) <= seq and not self.finished:
                 self.cond.wait(timeout)
             return self.events[seq:]
+
+    def _emit_progress(self, phase_id, label, done, total, found):
+        remaining = (total - done) + sum(self.pending_phases.values())
+        eta = self.eta_tracker.estimate(remaining)
+        eta_min = not self.c_known
+        self.phase_state = {"name": phase_id, "label": label, "done": done,
+                            "total": total, "found": found,
+                            "eta": None if eta is None else round(eta),
+                            "etaMin": eta_min}
+        self.emit("progress", {"phase": phase_id, "done": done, "total": total,
+                               "found": found, "eta": self.phase_state["eta"],
+                               "etaMin": eta_min})
 
     # ---------- Hilfen ----------
 
@@ -335,6 +351,7 @@ class ScanJob:
         _merge_extras(origins, p.get("extraOrigins") or [])
         _merge_extras(dests, p.get("extraDests") or [])
         self.emit("candidates", {"origins": origins, "dests": dests})
+        self.pending_phases = {"A": len(origins), "B": len(dests)}
 
         start_self = dict(start, dist_km=0)
         dest_self = dict(dest, dist_km=0)
@@ -369,6 +386,8 @@ class ScanJob:
             self.emit("log", {"msg": f"Attraktiv-Filter: {len(combo_origins)}/{len(surviving_origins)} Einstiege, "
                                      f"{len(combo_dests)}/{len(surviving_dests)} Ziele (Sparschiene oder <= Soll-Preis)"})
         combos = [(a, b) for a in combo_origins for b in combo_dests]
+        self.pending_phases["C"] = len(combos)
+        self.c_known = True
         self.emit("log", {"msg": f"Phase C: {len(combos)} Kombinationen aus "
                                  f"{len(combo_origins)} Einstiegen x {len(combo_dests)} Zielen"})
         self._phase_scan("C", "Kombinationen testen", combos,
@@ -384,6 +403,7 @@ class ScanJob:
 
     def _phase_scan(self, phase_id, label, items, worker, on_survivor):
         self.emit("phase", {"name": phase_id, "label": label, "total": len(items)})
+        self.pending_phases.pop(phase_id, None)
         if not items:
             return
         done = 0
@@ -397,6 +417,7 @@ class ScanJob:
                     raise RuntimeError("Scan abgebrochen")
                 item = futures[fut]
                 done += 1
+                self.eta_tracker.record()
                 try:
                     hits = fut.result()
                     self.timeout_streak = 0
@@ -432,8 +453,7 @@ class ScanJob:
                         ref = min(refs) if refs else None
                         target = item if not isinstance(item, tuple) else item[0]
                         on_survivor(target, conn["from"]["departure"], best, spar, ref)
-                self.emit("progress", {"phase": phase_id, "done": done,
-                                       "total": len(items), "found": found})
+                self._emit_progress(phase_id, label, done, len(items), found)
 
     # ---------- Bushaltestellen automatisch ergaenzen ----------
 
@@ -490,7 +510,9 @@ class ScanJob:
                     have.add(stop["id"])
                     candidates.append(stop)
                     added += 1
-                self.emit("progress", {"phase": "bus", "done": done, "total": len(items), "found": added})
+                self.eta_tracker.record()
+                self._emit_progress("bus", f"Bushaltestellen suchen ({label})",
+                                    done, len(items), added)
         self.emit("log", {"msg": f"{added} Bushaltestellen ergaenzt ({label})"})
 
     def _find_bus_stop(self, town, near_station):
