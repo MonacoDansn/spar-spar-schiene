@@ -56,6 +56,13 @@ public class MainActivity extends Activity {
             @Override
             public void onReceivedHttpAuthRequest(WebView view, HttpAuthHandler handler,
                                                   String host, String realm) {
+                // Zugangsdaten NUR an den eigenen Server schicken - der Callback feuert
+                // auch fuer 401-Challenges fremder Subressourcen (img/script/XHR).
+                String own = Uri.parse(baseUrl()).getHost();
+                if (own == null || !own.equalsIgnoreCase(host)) {
+                    handler.cancel();
+                    return;
+                }
                 String user = prefs.getString("auth_user", null);
                 String pass = prefs.getString("auth_pass", null);
                 if (user != null && pass != null && !prefs.getBoolean("auth_failed", false)) {
@@ -105,13 +112,21 @@ public class MainActivity extends Activity {
                 i.putExtra("baseUrl", baseUrl());
                 i.putExtra("user", prefs.getString("auth_user", null));
                 i.putExtra("pass", prefs.getString("auth_pass", null));
-                startForegroundService(i);
+                try {
+                    startForegroundService(i);
+                } catch (Exception e) {
+                    // Android 12+: FGS-Start aus dem Hintergrund verboten (App wurde nach
+                    // dem Tipp auf 'Scan starten' verlassen). Scan laeuft trotzdem weiter,
+                    // nur ohne Benachrichtigung - besser als App-Absturz.
+                }
             });
         }
 
         @JavascriptInterface
-        public void scanFinished() {
+        public void scanFinished(String ignored) {
             // Nur Hinweis - der Service erkennt das Ende selbst ueber den Snapshot.
+            // Parameter noetig: die JS-Bruecke matcht nach Name UND Argumentanzahl,
+            // und app.js ruft immer mit einem String-Argument auf.
         }
     }
 
@@ -131,6 +146,9 @@ public class MainActivity extends Activity {
                 .setPositiveButton("Laden", (d, w) -> {
                     String url = input.getText().toString().trim();
                     if (!url.startsWith("http")) url = "https://" + url;
+                    // Trailing Slash entfernen: der Service haengt Pfade an, und
+                    // "//api/..." beantwortet der Server mit 404
+                    while (url.endsWith("/")) url = url.substring(0, url.length() - 1);
                     prefs.edit().putString("base_url", url).apply();
                     webView.loadUrl(url);
                 })

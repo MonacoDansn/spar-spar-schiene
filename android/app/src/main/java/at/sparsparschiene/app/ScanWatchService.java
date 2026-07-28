@@ -24,7 +24,10 @@ import java.net.URL;
 public class ScanWatchService extends Service {
 
     private static final String CHANNEL = "scan_progress";
-    private static final int NOTIF_ID = 1;
+    private static final int NOTIF_ID = 1;       // laufender Fortschritt (Foreground)
+    private static final int NOTIF_DONE_ID = 2;  // Abschluss - eigene ID, damit sie den
+                                                 // Service-Tod ueberlebt (Foreground-
+                                                 // Notification wird sonst mitgeraeumt)
     private static final int POLL_MS = 10_000;
     private static final long MAX_RUNTIME_MS = 30 * 60_000L;
 
@@ -38,22 +41,28 @@ public class ScanWatchService extends Service {
         String jobId = intent != null ? intent.getStringExtra("jobId") : null;
         String baseUrl = intent != null ? intent.getStringExtra("baseUrl") : null;
         if (jobId == null || baseUrl == null) { stopSelf(); return START_NOT_STICKY; }
+        while (baseUrl.endsWith("/")) baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
         String user = intent.getStringExtra("user");
         String pass = intent.getStringExtra("pass");
+        final String fBaseUrl = baseUrl;
 
         createChannel();
         startForeground(NOTIF_ID, build("Scan läuft…", 0, 0, true));
 
         if (worker != null) worker.interrupt();  // alter Scan -> neuer gewinnt
-        worker = new Thread(() -> poll(baseUrl, jobId, user, pass));
+        worker = new Thread(() -> poll(fBaseUrl, jobId, user, pass));
         worker.setDaemon(true);
         worker.start();
         return START_NOT_STICKY;
     }
 
     private void poll(String baseUrl, String jobId, String user, String pass) {
+        // 'me'-Vergleich gegen das worker-Feld: interrupt() bricht laufendes
+        // HTTP-I/O nicht ab - ein abgeloester Alt-Worker darf danach weder die
+        // Benachrichtigung des neuen Scans ueberschreiben noch den Service stoppen.
+        final Thread me = Thread.currentThread();
         long startTime = System.currentTimeMillis();
-        while (!Thread.currentThread().isInterrupted()
+        while (worker == me && !me.isInterrupted()
                 && System.currentTimeMillis() - startTime < MAX_RUNTIME_MS) {
             try {
                 HttpURLConnection c = (HttpURLConnection)
@@ -66,8 +75,13 @@ public class ScanWatchService extends Service {
                     c.setRequestProperty("Authorization", "Basic " + cred);
                 }
                 int status = c.getResponseCode();
+                if (worker != me) return;
                 if (status == 404) {
                     finish("⚠️ Scan verloren (Server-Neustart)");
+                    return;
+                }
+                if (status == 401 || status == 403) {
+                    finish("⚠️ Zugriff verweigert – Zugangsdaten in der App prüfen");
                     return;
                 }
                 if (status == 200) {
@@ -78,8 +92,17 @@ public class ScanWatchService extends Service {
                         while ((line = r.readLine()) != null) sb.append(line);
                     }
                     JSONObject snap = new JSONObject(sb.toString());
+                    if (worker != me) return;
                     if (snap.optBoolean("finished")) {
-                        finish("✅ Scan fertig: " + snap.optInt("resultCount") + " Tickets gefunden");
+                        if (snap.optBoolean("cancelled")) {
+                            finish("Scan abgebrochen (" + snap.optInt("resultCount")
+                                    + " Tickets bis dahin)");
+                        } else if (!snap.isNull("error")) {
+                            finish("⚠️ Scan fehlgeschlagen: " + snap.optString("error"));
+                        } else {
+                            finish("✅ Scan fertig: " + snap.optInt("resultCount")
+                                    + " Tickets gefunden");
+                        }
                         return;
                     }
                     JSONObject ph = snap.optJSONObject("phase");
@@ -97,7 +120,9 @@ public class ScanWatchService extends Service {
             }
             try { Thread.sleep(POLL_MS); } catch (InterruptedException e) { return; }
         }
-        stopSelf();
+        if (worker == me) {
+            finish("⏱ Beobachtung beendet – Scan läuft evtl. noch (App öffnen)");
+        }
     }
 
     private static String phaseLabel(String name) {
@@ -119,8 +144,12 @@ public class ScanWatchService extends Service {
     }
 
     private void finish(String message) {
-        notify(build(message, 0, 0, false));
-        stopForeground(false);  // Benachrichtigung stehen lassen
+        // Abschluss unter EIGENER ID: die Foreground-Notification (NOTIF_ID) wird
+        // beim Zerstoeren des Service vom System entfernt - stopForeground(false)
+        // loest sie nicht vom ServiceRecord, die Fertig-Meldung waere sofort weg.
+        stopForeground(STOP_FOREGROUND_REMOVE);
+        ((NotificationManager) getSystemService(NOTIFICATION_SERVICE))
+                .notify(NOTIF_DONE_ID, build(message, 0, 0, false));
         stopSelf();
     }
 
@@ -139,7 +168,8 @@ public class ScanWatchService extends Service {
                 .setStyle(new Notification.BigTextStyle().bigText(text))
                 .setContentIntent(pi)
                 .setOnlyAlertOnce(true)
-                .setOngoing(ongoing);
+                .setOngoing(ongoing)
+                .setAutoCancel(!ongoing);
         if (total > 0) b.setProgress(total, done, false);
         return b.build();
     }
