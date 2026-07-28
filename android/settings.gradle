@@ -13,3 +13,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "SparSparSchiene"
 include ":app"
+include ":applocal"
