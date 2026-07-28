@@ -192,6 +192,10 @@ scanBtn.onclick = async () => {
   });
   document.getElementById("soll-table").querySelector("tbody").innerHTML = "";
   document.getElementById("log").textContent = "";
+  document.getElementById("phase-label").textContent = "…";
+  document.getElementById("progress-fill").style.width = "0%";
+  document.getElementById("progress-text").textContent = "";
+  state.sollSelected = new Set();
   document.getElementById("progress-card").style.display = "";
   document.getElementById("results-card").style.display = "none";
   document.getElementById("soll-card").style.display = "none";
@@ -236,7 +240,9 @@ function connectEvents() {
           state.results = snap.results;
           renderResults();
         }
-        document.getElementById("phase-label").textContent = "✅ Scan abgeschlossen";
+        if (snap.error) logLine("FEHLER: " + snap.error);
+        document.getElementById("phase-label").textContent =
+          snap.error ? "⚠️ Scan beendet mit Fehler" : "✅ Scan abgeschlossen";
         finishScan();
       } else {
         setTimeout(connectEvents, 1500);
