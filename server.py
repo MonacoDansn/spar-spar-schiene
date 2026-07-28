@@ -37,6 +37,15 @@ MIME = {
 }
 
 
+def job_snapshot(job, light):
+    """Scan-Zustand als JSON-faehiges Dict; light = ohne grosses results-Array."""
+    snap = {"finished": job.finished, "phase": job.phase_state,
+            "resultCount": len(job.results)}
+    if not light:
+        snap["results"] = sorted(job.results.values(), key=lambda r: r["price"])
+    return snap
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -136,8 +145,7 @@ class Handler(BaseHTTPRequestHandler):
             if not job:
                 self._json({"error": "unbekannter Scan"}, 404)
                 return
-            self._json({"finished": job.finished,
-                        "results": sorted(job.results.values(), key=lambda r: r["price"])})
+            self._json(job_snapshot(job, light="light" in qs))
         else:
             self._json({"error": "not found"}, 404)
 

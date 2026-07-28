@@ -63,5 +63,29 @@ class TestPhaseState(unittest.TestCase):
         self.assertFalse(job.phase_state["etaMin"])
 
 
+import server
+
+
+class TestSnapshot(unittest.TestCase):
+    def _job(self):
+        job = ScanJob({"maxRps": 1})
+        job.phase_state = {"name": "A", "label": "x", "done": 1, "total": 2,
+                           "found": 0, "eta": 30, "etaMin": True}
+        job.results = {"k": {"price": 10.0}}
+        return job
+
+    def test_light_snapshot_ohne_results(self):
+        snap = server.job_snapshot(self._job(), light=True)
+        self.assertNotIn("results", snap)
+        self.assertEqual(snap["resultCount"], 1)
+        self.assertEqual(snap["phase"]["eta"], 30)
+        self.assertFalse(snap["finished"])
+
+    def test_voller_snapshot_mit_results_und_phase(self):
+        snap = server.job_snapshot(self._job(), light=False)
+        self.assertEqual(len(snap["results"]), 1)
+        self.assertEqual(snap["phase"]["name"], "A")
+
+
 if __name__ == "__main__":
     unittest.main()
