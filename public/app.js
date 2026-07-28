@@ -183,6 +183,7 @@ scanBtn.onclick = async () => {
   if (!data.jobId) { alert("Fehler: " + JSON.stringify(data)); return; }
 
   state.jobId = data.jobId;
+  notifyApp("scanStarted", data.jobId);
   state.results = [];
   state.lastSeq = -1;
   document.getElementById("results-table").querySelector("tbody").innerHTML = "";
@@ -258,6 +259,19 @@ function fmtDate(iso) {
 function fmtPrice(p) {
   return "€ " + p.toFixed(2).replace(".", ",");
 }
+function fmtEta(sec, isMin) {
+  if (sec == null) return "";
+  const txt = sec < 90 ? `~${Math.max(10, Math.round(sec / 10) * 10)} s`
+                       : `~${Math.round(sec / 60)} min`;
+  return ` · noch ${isMin ? "mind. " : ""}${txt}`;
+}
+
+// Brücke zur Android-App (window.SparApp existiert nur im WebView der App)
+function notifyApp(fn, arg) {
+  try {
+    if (window.SparApp && window.SparApp[fn]) window.SparApp[fn](arg == null ? "" : String(arg));
+  } catch (e) { /* App-Brücke optional */ }
+}
 
 function handleEvent(ev) {
   const d = ev.data;
@@ -275,7 +289,8 @@ function handleEvent(ev) {
       const pct = d.total ? Math.round((100 * d.done) / d.total) : 0;
       document.getElementById("progress-fill").style.width = pct + "%";
       document.getElementById("progress-text").textContent =
-        `${d.done} / ${d.total} Abfragen · ${d.found} Bahnhöfe mit Treffern`;
+        `${d.done} / ${d.total} Abfragen · ${d.found} Bahnhöfe mit Treffern` +
+        fmtEta(d.eta, d.etaMin);
       break;
     }
     case "soll": {
@@ -343,6 +358,7 @@ function handleEvent(ev) {
 }
 
 function finishScan() {
+  notifyApp("scanFinished");
   scanBtn.disabled = false;
   cancelBtn.style.display = "none";
   if (state.evtSource) state.evtSource.close();
