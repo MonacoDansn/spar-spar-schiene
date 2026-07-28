@@ -21,16 +21,22 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
 
-      - name: APK bauen (debug-signiert, direkt installierbar)
+      - name: APKs bauen (debug-signiert, direkt installierbar)
         working-directory: android
         run: gradle assembleDebug
 
-      - name: APK umbenennen
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk SparSparSchiene.apk
+      - name: APKs umbenennen
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk SparSparSchiene.apk
+          cp android/applocal/build/outputs/apk/debug/applocal-debug.apk SparSparSchieneLokal.apk
 
       - name: Als Release veroeffentlichen
         env:
@@ -38,11 +44,13 @@ jobs:
         run: |
           gh release delete apk-latest --yes || true
           git push --delete origin apk-latest || true
-          gh release create apk-latest SparSparSchiene.apk \
-            --title "Spar Spar Schiene - Android App" \
-            --notes "WebView-App. Beim ersten Start Server-URL eingeben (Render-URL oder http://<PC-IP>:8325 im Heim-WLAN). Installation: APK herunterladen, 'Unbekannte Quellen' erlauben, installieren."
+          gh release create apk-latest SparSparSchiene.apk SparSparSchieneLokal.apk \
+            --title "Spar Spar Schiene - Android Apps" \
+            --notes "SparSparSchiene.apk: WebView-App fuer den eigenen Server (Render-URL oder http://<PC-IP>:8325). SparSparSchieneLokal.apk (experimentell): laeuft komplett lokal am Handy, kein Server und keine Anmeldung noetig. Installation: APK herunterladen, 'Unbekannte Quellen' erlauben, installieren."
 
       - uses: actions/upload-artifact@v4
         with:
-          name: SparSparSchiene-apk
-          path: SparSparSchiene.apk
+          name: SparSparSchiene-apks
+          path: |
+            SparSparSchiene.apk
+            SparSparSchieneLokal.apk

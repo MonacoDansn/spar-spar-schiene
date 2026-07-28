@@ -142,6 +142,20 @@ jedem Push automatisch die APK und veröffentlicht sie als Release **`apk-latest
   erlauben → installieren. Da die APK debug-signiert ist, bei App-Updates vorher
   die alte Version deinstallieren.
 
+## Lokale App (experimentell)
+
+`SparSparSchieneLokal.apk` (Release `apk-latest`) läuft **komplett ohne
+Server**: ein eingebetteter Python-Interpreter ([Chaquopy](https://chaquo.com/chaquopy/))
+führt den unveränderten `server.py` direkt am Handy aus, der WebView zeigt die
+gewohnte Oberfläche von `127.0.0.1:8325`.
+
+- **Keine Anmeldung, keine Server-URL** — App öffnen und loslegen
+- ÖBB-Anfragen gehen direkt vom Handy aus (eigene IP statt Cloud)
+- ~30 MB (Python-Runtime, nur arm64); parallel zur Haupt-App installierbar
+- Scans laufen, solange App oder Benachrichtigungs-Service leben; bei sehr
+  langen Scans die App ggf. von der Akku-Optimierung ausnehmen
+- Caches (`places_cache`, `bus_cache`) liegen im App-Speicher
+
 ## Hinweise
 
 - Inoffizielles Hobby-Tool; die ÖBB kann die Schnittstelle jederzeit ändern.
