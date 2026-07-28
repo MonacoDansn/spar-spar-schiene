@@ -86,6 +86,25 @@ class TestSnapshot(unittest.TestCase):
         self.assertEqual(len(snap["results"]), 1)
         self.assertEqual(snap["phase"]["name"], "A")
 
+    def test_snapshot_meldet_fehler_und_abbruch(self):
+        job = self._job()
+        snap = server.job_snapshot(job, light=True)
+        self.assertIsNone(snap["error"])
+        self.assertFalse(snap["cancelled"])
+
+        job.error = "Die OeBB-API antwortet nicht mehr"
+        job.cancelled = True
+        snap = server.job_snapshot(job, light=True)
+        self.assertEqual(snap["error"], "Die OeBB-API antwortet nicht mehr")
+        self.assertTrue(snap["cancelled"])
+
+    def test_run_safe_setzt_error(self):
+        job = ScanJob({"maxRps": 1})
+        job._run = lambda: (_ for _ in ()).throw(RuntimeError("kaputt"))
+        job._run_safe()
+        self.assertEqual(job.error, "kaputt")
+        self.assertTrue(job.finished)
+
 
 if __name__ == "__main__":
     unittest.main()

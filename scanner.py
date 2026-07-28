@@ -155,6 +155,7 @@ class ScanJob:
         self.cond = threading.Condition()
         self.cancelled = False
         self.finished = False
+        self.error = None  # Fehlermeldung, wenn der Scan nicht regulaer endete
         self.results = {}  # key -> result dict (dedupe, cheapest wins)
         # Defaults per Umgebung drosselbar: Render-Free hat nur 0,1 CPU und teilt
         # sich die Ausgangs-IP mit anderen Kunden - dort gelten sanftere Werte.
@@ -279,6 +280,7 @@ class ScanJob:
         try:
             self._run()
         except Exception as e:
+            self.error = str(e)
             self.emit("error", {"message": str(e)})
         finally:
             self.finished = True

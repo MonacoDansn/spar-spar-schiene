@@ -40,7 +40,8 @@ MIME = {
 def job_snapshot(job, light):
     """Scan-Zustand als JSON-faehiges Dict; light = ohne grosses results-Array."""
     snap = {"finished": job.finished, "phase": job.phase_state,
-            "resultCount": len(job.results)}
+            "resultCount": len(job.results),
+            "error": job.error, "cancelled": job.cancelled}
     if not light:
         snap["results"] = sorted(job.results.values(), key=lambda r: r["price"])
     return snap
