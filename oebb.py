@@ -117,7 +117,7 @@ class OebbClient:
                 conn.request(method, pathq, body=body, headers=headers)
                 resp = conn.getresponse()
                 data = resp.read()
-                return resp.status, data
+                return resp.status, data, dict(resp.getheaders())
             except TimeoutError:
                 try:
                     conn.close()
@@ -138,8 +138,8 @@ class OebbClient:
         token = getattr(self._local, "token", None)
         token_time = getattr(self._local, "token_time", 0.0)
         if token is None or time.time() - token_time > 240:
-            status, raw = self._raw("GET", BASE_PATH + "/domain/v4/init",
-                                    {"User-Agent": UA, "Channel": "inet", "Lang": "de"}, None)
+            status, raw, _ = self._raw("GET", BASE_PATH + "/domain/v4/init",
+                                       {"User-Agent": UA, "Channel": "inet", "Lang": "de"}, None)
             if status != 200:
                 raise OebbError(f"Token-Abruf fehlgeschlagen: HTTP {status}")
             token = json.loads(raw.decode("utf-8"))["accessToken"]
@@ -156,6 +156,7 @@ class OebbClient:
         http_attempts = 0     # Netzwerk-/5xx-Fehler: max. `retries` Wiederholungen
         timeout_retries = 1   # Zeitueberschreitungen: genau 1 Wiederholung
         auth_retries = 2      # 401: Token erneuern
+        rate_retries = 5      # 429: geduldig wiederholen - kein Kandidat geht verloren
         while True:
             self._throttle()
             try:
@@ -170,7 +171,7 @@ class OebbClient:
                 if body is not None:
                     headers["Content-Type"] = "application/json"
                     data = json.dumps(body).encode("utf-8")
-                status, raw = self._raw(method, pathq, headers, data, timeout=timeout)
+                status, raw, resp_headers = self._raw(method, pathq, headers, data, timeout=timeout)
             except OebbTimeout:
                 # Haengende Abfrage: Tempo drosseln, 1x wiederholen, dann klar melden
                 self._slow_down()
@@ -200,8 +201,20 @@ class OebbClient:
                 # Relation nicht routbar (aufgelassene Haltestelle etc.) -> kein Retry
                 raise OebbError("nicht buchbar")
             if status == 429:
+                # OeBB bittet um langsameres Tempo: Rate halbieren und geduldig
+                # wiederholen (Retry-After-Header respektieren, wenn vorhanden).
                 self._slow_down()
-            if status in (429, 500, 502, 503, 504):
+                rate_retries -= 1
+                if rate_retries >= 0:
+                    try:
+                        wait = min(float(resp_headers.get("Retry-After", "")), 30.0)
+                    except (TypeError, ValueError):
+                        wait = min(2.0 ** (5 - rate_retries), 10.0)
+                    time.sleep(wait)
+                    continue
+                raise OebbError(f"OeBB-Server ueberlastet (HTTP 429) bei {path} - "
+                                f"trotz Tempodrosselung keine Antwort, bitte spaeter erneut versuchen")
+            if status in (500, 502, 503, 504):
                 http_attempts += 1
                 if http_attempts <= retries:
                     time.sleep(1.5 * http_attempts)
