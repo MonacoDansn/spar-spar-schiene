@@ -32,8 +32,10 @@ class TestRateLimitRequeue(unittest.TestCase):
         self.assertEqual(calls["b"], 2)   # zurueckgestellt + zweiter Versuch
         self.assertEqual(calls["a"], 1)
         self.assertEqual(job.stats["throttled"], 0)
-        self.assertEqual(job.phase_state["done"], 3)
-        self.assertEqual(job.phase_state["total"], 3)
+        # Der Wiederholungsversuch zaehlt sichtbar mit (3 + 1 Wiederholung),
+        # sonst wirkt der Fortschrittsbalken eingefroren
+        self.assertEqual(job.phase_state["done"], 4)
+        self.assertEqual(job.phase_state["total"], 4)
 
     def test_dauerhaft_gedrosselt_wird_ehrlich_gezaehlt(self):
         job = _job()

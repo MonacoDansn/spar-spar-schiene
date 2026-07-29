@@ -164,11 +164,23 @@ def filter_soll(soll_list, selected_keys):
     return [s for s in soll_list if soll_key(s["trains"]) in wanted]
 
 
-def build_soll_list(client, start, dest, dep_str):
-    """Soll-Verbindungen (Referenz-Zuege inkl. Preis) fuer eine Strecke laden."""
+def build_soll_list(client, start, dest, dep_str, versuche=3):
+    """Soll-Verbindungen (Referenz-Zuege inkl. Preis) fuer eine Strecke laden.
+
+    Die OeBB lehnt sporadisch ab (429, unabhaengig vom Tempo - gemessen 2026-07-29).
+    Ohne Wiederholung scheitert sonst schon der erste Schritt, obwohl ein zweiter
+    Versuch meist sofort klappt."""
     if len(dep_str) == 16:
         dep_str += ":00.000"
-    conns, price_map = client.connection_search(start, dest, datetime_departure=dep_str)
+    for versuch in range(versuche):
+        try:
+            conns, price_map = client.connection_search(start, dest,
+                                                        datetime_departure=dep_str)
+            break
+        except oebb.OebbError:
+            if versuch == versuche - 1:
+                raise
+            time.sleep(2.0 * (versuch + 1))
     soll_list = []
     for conn in conns:
         info = price_map.get(conn["id"]) or {}
@@ -230,6 +242,10 @@ class ScanJob:
         line = (f"Zusammenfassung: {s['queries']} Abfragen ({s['empty']} ohne Ergebnis), "
                 f"{s['conns']} Verbindungen geprüft, {s['matches']} passende Züge gefunden, "
                 f"{s['price_fail']} Preisabfragen fehlgeschlagen")
+        if self.client.rate_hits:
+            line += (f" · ÖBB-Bremse: {self.client.rate_hits}× gedrosselt, "
+                     f"{round(self.client.retry_wait)} s Wartezeit, aktuell "
+                     f"{round(1 / self.client._min_interval, 1)} Abfragen/s")
         if s["throttled"]:
             line += (f" – ⚠ {s['throttled']} Bahnhöfe blieben wegen ÖBB-Drosselung ungeprüft "
                      f"(später erneut scannen lohnt sich)")
@@ -256,10 +272,14 @@ class ScanJob:
         self.phase_state = {"name": phase_id, "label": label, "done": done,
                             "total": total, "found": found,
                             "eta": None if eta is None else round(eta),
-                            "etaMin": eta_min}
+                            "etaMin": eta_min,
+                            "rateHits": self.client.rate_hits,
+                            "rps": round(1 / self.client._min_interval, 2)}
         self.emit("progress", {"phase": phase_id, "done": done, "total": total,
                                "found": found, "eta": self.phase_state["eta"],
-                               "etaMin": eta_min})
+                               "etaMin": eta_min,
+                               "rateHits": self.client.rate_hits,
+                               "rps": self.phase_state["rps"]})
 
     # ---------- Hilfen ----------
 
@@ -459,8 +479,12 @@ class ScanJob:
         deferred = self._phase_pass(phase_id, label, items, worker, on_survivor,
                                     state, first_pass=True)
         if deferred and not self.cancelled:
-            self.emit("log", {"msg": f"ÖBB-Bremse: {len(deferred)} Bahnhöfe zurückgestellt – "
+            self.emit("log", {"msg": f"{len(deferred)} Bahnhöfe zurückgestellt – "
                                      f"{RATE_PAUSE_SECS} s Pause, dann zweiter Versuch"})
+            # Wiederholungen ehrlich in den Fortschritt aufnehmen, sonst wirkt der
+            # Balken eingefroren, obwohl der Scan laeuft
+            state["total"] += len(deferred)
+            self._emit_progress(phase_id, label, state["done"], state["total"], state["found"])
             for _ in range(RATE_PAUSE_SECS):
                 if self.cancelled:
                     raise RuntimeError("Scan abgebrochen")
@@ -490,18 +514,18 @@ class ScanJob:
                     msg = str(e)
                     hits = []
                     if "HTTP 429" in msg:
-                        deferred.append(item)
                         if first_pass:
-                            # zaehlt noch nicht als erledigt - kommt in Runde 2
+                            deferred.append(item)
                             throttle_msgs += 1
                             if throttle_msgs <= 2:
-                                self.emit("log", {"msg": f"ÖBB bittet um langsameres Tempo – "
+                                self.emit("log", {"msg": f"ÖBB hat abgelehnt – "
                                                          f"{self._item_name(item)} wird später erneut versucht"})
                             elif throttle_msgs == 3:
-                                self.emit("log", {"msg": "ÖBB-Bremse aktiv – weitere betroffene "
-                                                         "Bahnhöfe werden gesammelt (Details am Phasenende)"})
-                            continue
-                        # zweiter Versuch auch gedrosselt -> endgueltig, unten zaehlen
+                                self.emit("log", {"msg": "Weitere Ablehnungen der ÖBB – betroffene "
+                                                         "Bahnhöfe werden gesammelt und am Phasenende wiederholt"})
+                        else:
+                            # zweiter Versuch auch abgelehnt -> endgueltig ungeprueft
+                            deferred.append(item)
                     elif msg == "nicht buchbar":
                         self.emit("log", {"msg": f"übersprungen (dort gibt es keine buchbare Verbindung): {self._item_name(item)}"})
                     elif msg.startswith("Zeitueberschreitung"):

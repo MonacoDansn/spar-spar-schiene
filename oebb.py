@@ -59,13 +59,19 @@ class OebbTimeout(OebbError):
 TIMEOUT_DEFAULT = 15
 TIMEOUT_PRICES = 20
 
-# Adaptive Bremse: 429-Meldungen kommen bei paralleler Suche im Schwung herein -
-# alle melden aber DASSELBE Limit. Ohne Cooldown verdoppelt jede einzelne Meldung
-# die Wartezeit (10 Worker = Faktor 1024) und die Suche kriecht nur noch.
+# Adaptive Bremse. WICHTIG (gemessen 2026-07-29): Die OeBB liefert 429 auch bei
+# 0,5 Anfragen/s - die Ablehnungen sind sporadisch und haengen NICHT an unserem
+# Tempo. Sehr langsam zu werden bringt darum nichts ausser Wartezeit. Die Bremse
+# bleibt als milde Vorsichtsmassnahme, aber mit engem Deckel; hartnaeckige Faelle
+# wandern stattdessen in die Wiederholungs-Warteschlange des Scanners.
 THROTTLE_COOLDOWN = 3.0     # innerhalb dieser Zeit zaehlen 429 als ein Ereignis
 RECOVER_AFTER = 10.0        # so lange Ruhe -> Tempo darf wieder steigen
 RECOVER_STEP_EVERY = 4.0    # Abstand zwischen zwei Beschleunigungsschritten
-MAX_INTERVAL = 5.0          # Notfall-Untergrenze: 1 Anfrage / 5 s
+MAX_INTERVAL = 1.0          # Untergrenze: 1 Anfrage / s (mehr bringt nichts)
+# Kurze Wiederholungen: lieber schnell scheitern und den Kandidaten spaeter
+# erneut versuchen, als eine Anfrage minutenlang festzuhalten.
+RATE_RETRIES = 2
+RETRY_WAITS = (1.0, 2.0)
 
 
 class OebbClient:
@@ -80,6 +86,9 @@ class OebbClient:
         self._last_request = 0.0
         self._last_throttle = 0.0   # letzte Bremsung (fuer Cooldown/Erholung)
         self._last_recover = 0.0
+        # Diagnose: wie hart bremst die OeBB uns tatsaechlich aus?
+        self.rate_hits = 0          # empfangene 429
+        self.retry_wait = 0.0       # Sekunden, die deswegen gewartet wurde
         # Verbindung UND Session/Token sind pro Thread: viele parallele Abfragen
         # auf EINER anonymen Session lassen die OeBB-Routing-Engine still
         # degenerieren (leere Ergebnisse) - eigene Session je Worker vermeidet das.
@@ -88,11 +97,15 @@ class OebbClient:
     # ---------- intern ----------
 
     def _throttle(self):
+        """Globaler Mindestabstand zwischen Anfragen. Der Startzeitpunkt wird
+        unter der Sperre reserviert, geschlafen wird OHNE sie - sonst warten alle
+        Worker der Reihe nach am Lock statt parallel zu arbeiten."""
         with self._rate_lock:
-            wait = self._last_request + self._min_interval - time.time()
-            if wait > 0:
-                time.sleep(wait)
-            self._last_request = time.time()
+            start = max(time.time(), self._last_request + self._min_interval)
+            self._last_request = start
+        wait = start - time.time()
+        if wait > 0:
+            time.sleep(wait)
 
     def _slow_down(self):
         """Nach HTTP 429: Tempo halbieren - aber hoechstens einmal pro Cooldown.
@@ -182,7 +195,7 @@ class OebbClient:
         http_attempts = 0     # Netzwerk-/5xx-Fehler: max. `retries` Wiederholungen
         timeout_retries = 1   # Zeitueberschreitungen: genau 1 Wiederholung
         auth_retries = 2      # 401: Token erneuern
-        rate_retries = 5      # 429: geduldig wiederholen - kein Kandidat geht verloren
+        rate_retries = RATE_RETRIES   # 429: kurz wiederholen, dann Warteschlange
         while True:
             self._throttle()
             try:
@@ -229,13 +242,18 @@ class OebbClient:
             if status == 429:
                 # OeBB bittet um langsameres Tempo: Rate halbieren und geduldig
                 # wiederholen (Retry-After-Header respektieren, wenn vorhanden).
+                with self._rate_lock:
+                    self.rate_hits += 1
                 self._slow_down()
-                rate_retries -= 1
-                if rate_retries >= 0:
+                if rate_retries > 0:
+                    stufe = RATE_RETRIES - rate_retries
+                    rate_retries -= 1
                     try:
-                        wait = min(float(resp_headers.get("Retry-After", "")), 30.0)
+                        wait = min(float(resp_headers.get("Retry-After", "")), RETRY_WAITS[-1])
                     except (TypeError, ValueError):
-                        wait = min(2.0 ** (5 - rate_retries), 10.0)
+                        wait = RETRY_WAITS[min(stufe, len(RETRY_WAITS) - 1)]
+                    with self._rate_lock:
+                        self.retry_wait += wait
                     time.sleep(wait)
                     continue
                 raise OebbError(f"OeBB-Server ueberlastet (HTTP 429) bei {path} - "

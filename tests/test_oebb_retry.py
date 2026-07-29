@@ -22,9 +22,9 @@ class ScriptedClient(oebb.OebbClient):
 
 
 class TestRateLimitRetry(unittest.TestCase):
-    def test_429_wird_geduldig_wiederholt_und_retry_after_respektiert(self):
+    def test_429_wird_kurz_wiederholt(self):
         client = ScriptedClient([
-            (429, b"", {"Retry-After": "7"}),
+            (429, b"", {}),
             (429, b"", {}),
             (200, b'{"ok": true}', {}),
         ])
@@ -32,7 +32,20 @@ class TestRateLimitRetry(unittest.TestCase):
             result = client._request("GET", "/test")
         self.assertEqual(result, {"ok": True})
         waits = [c.args[0] for c in fake_sleep.call_args_list]
-        self.assertIn(7.0, waits)  # Retry-After-Header der OeBB wird respektiert
+        self.assertEqual(waits, list(oebb.RETRY_WAITS))
+
+    def test_langes_retry_after_wird_gedeckelt(self):
+        """Gemessen: 429 kommen sporadisch, nicht tempoabhaengig. Minutenlanges
+        Warten wuerde nur den Kandidaten blockieren - der Scanner versucht ihn
+        ohnehin spaeter erneut."""
+        client = ScriptedClient([
+            (429, b"", {"Retry-After": "120"}),
+            (200, b'{"ok": true}', {}),
+        ])
+        with mock.patch.object(oebb.time, "sleep") as fake_sleep:
+            client._request("GET", "/test")
+        waits = [c.args[0] for c in fake_sleep.call_args_list]
+        self.assertLessEqual(max(waits), oebb.RETRY_WAITS[-1])
 
     def test_parallele_429_drosseln_nur_einmal(self):
         """10 Worker melden gleichzeitig dasselbe Limit -> EIN Bremsschritt.
@@ -64,7 +77,7 @@ class TestRateLimitRetry(unittest.TestCase):
             t += oebb.THROTTLE_COOLDOWN + 1
             with mock.patch.object(oebb.time, "time", return_value=t):
                 client._slow_down()
-        self.assertEqual(client._min_interval, 5.0)
+        self.assertEqual(client._min_interval, oebb.MAX_INTERVAL)
 
         t += oebb.RECOVER_AFTER + 1
         schritte = 0
@@ -74,7 +87,7 @@ class TestRateLimitRetry(unittest.TestCase):
                 client._recover_speed()
             schritte += 1
         self.assertEqual(client._min_interval, client._base_interval)
-        self.assertLessEqual(schritte, 7)  # 5.0 -> 0.125 = 6 Halbierungen
+        self.assertLessEqual(schritte, 5)  # 1.0 -> 0.125 = 3 Halbierungen
 
     def test_keine_erholung_direkt_nach_drosselung(self):
         client = ScriptedClient([])
@@ -84,15 +97,15 @@ class TestRateLimitRetry(unittest.TestCase):
             client._recover_speed()
         self.assertEqual(client._min_interval, gebremst)
 
-    def test_bremse_kann_weit_unter_2_rps(self):
-        # Der alte Deckel bei 0.5s (= 2 Anfragen/s) war zu hoch: bei strenger
-        # OeBB-Drosselung konnte der Client nie genug abbremsen (Debug e1b6a34b02f4).
+    def test_bremse_hat_engen_deckel(self):
+        """Messung 2026-07-29: 429 kommen auch bei 0,5 Anfragen/s. Noch langsamer
+        zu werden bringt nichts - der Deckel bleibt darum eng."""
         client = ScriptedClient([])
         for i in range(20):
             with mock.patch.object(oebb.time, "time",
                                    return_value=1000.0 + i * (oebb.THROTTLE_COOLDOWN + 1)):
                 client._slow_down()
-        self.assertEqual(client._min_interval, 5.0)
+        self.assertEqual(client._min_interval, oebb.MAX_INTERVAL)
 
     def test_429_drosselt_das_tempo(self):
         client = ScriptedClient([
