@@ -26,8 +26,10 @@ import stations as stationsdb
 JOBS = {}
 JOBS_LOCK = threading.Lock()
 
-# Pause, bevor 429-gedrosselte Kandidaten ein zweites Mal versucht werden
-RATE_PAUSE_SECS = 90
+# Pause, bevor abgelehnte Kandidaten ein zweites Mal versucht werden.
+# Kurz gehalten: die Ablehnungen der OeBB sind sporadisch und nicht tempoabhaengig,
+# langes Warten erhoeht die Erfolgschance nicht - es verlaengert nur den Scan.
+RATE_PAUSE_SECS = 25
 
 OVERPASS_URLS = [
     "https://overpass-api.de/api/interpreter",
