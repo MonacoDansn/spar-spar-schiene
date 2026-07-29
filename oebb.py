@@ -85,9 +85,11 @@ class OebbClient:
             self._last_request = time.time()
 
     def _slow_down(self):
-        """Nach HTTP 429: Tempo halbieren (erholt sich bei Erfolgen langsam wieder)."""
+        """Nach HTTP 429: Tempo halbieren (erholt sich bei Erfolgen langsam wieder).
+        Deckel bewusst hoch (1 Anfrage/5s): bei strenger OeBB-Drosselung muss der
+        Client wirklich langsam werden koennen, sonst verbrennen alle Retries."""
         with self._rate_lock:
-            self._min_interval = min(self._min_interval * 2.0, 0.5)
+            self._min_interval = min(self._min_interval * 2.0, 5.0)
 
     def _recover_speed(self):
         with self._rate_lock:

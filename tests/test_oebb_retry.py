@@ -34,6 +34,14 @@ class TestRateLimitRetry(unittest.TestCase):
         waits = [c.args[0] for c in fake_sleep.call_args_list]
         self.assertIn(7.0, waits)  # Retry-After-Header der OeBB wird respektiert
 
+    def test_bremse_kann_weit_unter_2_rps(self):
+        # Der alte Deckel bei 0.5s (= 2 Anfragen/s) war zu hoch: bei strenger
+        # OeBB-Drosselung konnte der Client nie genug abbremsen (Debug e1b6a34b02f4).
+        client = ScriptedClient([])
+        for _ in range(20):
+            client._slow_down()
+        self.assertEqual(client._min_interval, 5.0)
+
     def test_429_drosselt_das_tempo(self):
         client = ScriptedClient([
             (429, b"", {}),

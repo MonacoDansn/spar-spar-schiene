@@ -179,6 +179,7 @@ radiusDest.oninput = () => {
 };
 
 document.getElementById("sort-mode").onchange = () => renderResults();
+document.getElementById("show-reduced").onchange = () => renderResults();
 
 // ---------- Schritt ①: Verbindungen laden ----------
 
@@ -539,9 +540,11 @@ function finishScan() {
 }
 
 function renderResults() {
-  // Filter: nur Ergebnisse, deren Soll-Verbindung angehakt ist
+  // Filter: nur angehakte Soll-Verbindungen; Teilstrecken nur auf Wunsch
+  const showReduced = document.getElementById("show-reduced").checked;
   const filtered = state.results.filter(
-    (r) => !r.sollTrains || state.sollSelected.has(sollKey(r.sollTrains)));
+    (r) => (!r.sollTrains || state.sollSelected.has(sollKey(r.sollTrains)))
+        && (showReduced || !r.reduced));
   const mode = document.getElementById("sort-mode").value;
   const sorted = [...filtered].sort(mode === "saving"
     ? (a, b) => ((b.saving ?? -1e9) - (a.saving ?? -1e9)) || (a.price - b.price)

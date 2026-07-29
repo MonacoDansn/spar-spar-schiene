@@ -26,6 +26,9 @@ import stations as stationsdb
 JOBS = {}
 JOBS_LOCK = threading.Lock()
 
+# Pause, bevor 429-gedrosselte Kandidaten ein zweites Mal versucht werden
+RATE_PAUSE_SECS = 90
+
 OVERPASS_URLS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
@@ -209,7 +212,8 @@ class ScanJob:
         self.skip_travel_action = False
         self.timeout_streak = 0  # Zeitueberschreitungen in Folge (Abbruch-Kriterium)
         self.stats_lock = threading.Lock()
-        self.stats = {"queries": 0, "empty": 0, "conns": 0, "matches": 0, "price_fail": 0}
+        self.stats = {"queries": 0, "empty": 0, "conns": 0, "matches": 0, "price_fail": 0,
+                      "throttled": 0}
         self.eta_tracker = EtaTracker()
         self.phase_state = None    # letzter Fortschritt inkl. ETA (fuer Snapshot/App)
         self.pending_phases = {}   # bekannte, noch nicht gestartete Phasen: name -> total
@@ -223,9 +227,13 @@ class ScanJob:
 
     def _stats_line(self):
         s = dict(self.stats)
-        return (f"Zusammenfassung: {s['queries']} Abfragen ({s['empty']} ohne Ergebnis), "
+        line = (f"Zusammenfassung: {s['queries']} Abfragen ({s['empty']} ohne Ergebnis), "
                 f"{s['conns']} Verbindungen geprüft, {s['matches']} passende Züge gefunden, "
                 f"{s['price_fail']} Preisabfragen fehlgeschlagen")
+        if s["throttled"]:
+            line += (f" – ⚠ {s['throttled']} Bahnhöfe blieben wegen ÖBB-Drosselung ungeprüft "
+                     f"(später erneut scannen lohnt sich)")
+        return line
 
     # ---------- Events ----------
 
@@ -445,8 +453,28 @@ class ScanJob:
         self.pending_phases.pop(phase_id, None)
         if not items:
             return
-        done = 0
-        found = 0
+        state = {"done": 0, "found": 0, "total": len(items)}
+        # 429-gedrosselte Kandidaten werden zurueckgestellt und nach einer Pause
+        # EINMAL erneut versucht - verwerfen wuerde den Suchraum still verkleinern.
+        deferred = self._phase_pass(phase_id, label, items, worker, on_survivor,
+                                    state, first_pass=True)
+        if deferred and not self.cancelled:
+            self.emit("log", {"msg": f"ÖBB-Bremse: {len(deferred)} Bahnhöfe zurückgestellt – "
+                                     f"{RATE_PAUSE_SECS} s Pause, dann zweiter Versuch"})
+            for _ in range(RATE_PAUSE_SECS):
+                if self.cancelled:
+                    raise RuntimeError("Scan abgebrochen")
+                time.sleep(1)
+            still = self._phase_pass(phase_id, label, deferred, worker, on_survivor,
+                                     state, first_pass=False)
+            if still:
+                self._stat(throttled=len(still))
+                self.emit("log", {"msg": f"⚠ {len(still)} Bahnhöfe blieben wegen "
+                                         f"ÖBB-Drosselung ungeprüft"})
+
+    def _phase_pass(self, phase_id, label, items, worker, on_survivor, state, first_pass):
+        deferred = []
+        throttle_msgs = 0
         default_workers = int(os.environ.get("SPAR_WORKERS", "20"))
         with ThreadPoolExecutor(max_workers=int(self.params.get("workers", default_workers))) as pool:
             futures = {pool.submit(worker, item): item for item in items}
@@ -455,14 +483,26 @@ class ScanJob:
                     pool.shutdown(wait=False, cancel_futures=True)
                     raise RuntimeError("Scan abgebrochen")
                 item = futures[fut]
-                done += 1
-                self.eta_tracker.record()
                 try:
                     hits = fut.result()
                     self.timeout_streak = 0
                 except Exception as e:
                     msg = str(e)
-                    if msg == "nicht buchbar":
+                    hits = []
+                    if "HTTP 429" in msg:
+                        deferred.append(item)
+                        if first_pass:
+                            # zaehlt noch nicht als erledigt - kommt in Runde 2
+                            throttle_msgs += 1
+                            if throttle_msgs <= 2:
+                                self.emit("log", {"msg": f"ÖBB bittet um langsameres Tempo – "
+                                                         f"{self._item_name(item)} wird später erneut versucht"})
+                            elif throttle_msgs == 3:
+                                self.emit("log", {"msg": "ÖBB-Bremse aktiv – weitere betroffene "
+                                                         "Bahnhöfe werden gesammelt (Details am Phasenende)"})
+                            continue
+                        # zweiter Versuch auch gedrosselt -> endgueltig, unten zaehlen
+                    elif msg == "nicht buchbar":
                         self.emit("log", {"msg": f"übersprungen (dort gibt es keine buchbare Verbindung): {self._item_name(item)}"})
                     elif msg.startswith("Zeitueberschreitung"):
                         self.timeout_streak += 1
@@ -475,14 +515,12 @@ class ScanJob:
                                 "Abbruch: Die ÖBB-Server antworten gerade nicht mehr. "
                                 "Bitte in ein paar Minuten erneut versuchen – "
                                 "deine bisherigen Ergebnisse bleiben erhalten.")
-                    elif "HTTP 429" in msg:
-                        self.emit("log", {"msg": f"ÖBB bittet um langsameres Tempo – Suche wird automatisch "
-                                                 f"gedrosselt ({self._item_name(item)} übersprungen)"})
                     else:
                         self.emit("log", {"msg": f"Problem bei {self._item_name(item)}: {msg[:160]}"})
-                    hits = []
+                state["done"] += 1
+                self.eta_tracker.record()
                 if hits:
-                    found += 1
+                    state["found"] += 1
                     if on_survivor is not None:
                         # dep-Zeit, Bestpreis, Sparschiene-Flag und Referenzpreis merken (fuer Phase C).
                         # Teilstrecken-Angebote (reduced) zaehlen NICHT als attraktiv -
@@ -495,7 +533,8 @@ class ScanJob:
                         ref = min(refs) if refs else None
                         target = item if not isinstance(item, tuple) else item[0]
                         on_survivor(target, conn["from"]["departure"], best, spar, ref)
-                self._emit_progress(phase_id, label, done, len(items), found)
+                self._emit_progress(phase_id, label, state["done"], state["total"], state["found"])
+        return deferred
 
     # ---------- Bushaltestellen automatisch ergaenzen ----------
 
