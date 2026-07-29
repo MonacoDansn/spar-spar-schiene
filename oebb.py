@@ -59,6 +59,14 @@ class OebbTimeout(OebbError):
 TIMEOUT_DEFAULT = 15
 TIMEOUT_PRICES = 20
 
+# Adaptive Bremse: 429-Meldungen kommen bei paralleler Suche im Schwung herein -
+# alle melden aber DASSELBE Limit. Ohne Cooldown verdoppelt jede einzelne Meldung
+# die Wartezeit (10 Worker = Faktor 1024) und die Suche kriecht nur noch.
+THROTTLE_COOLDOWN = 3.0     # innerhalb dieser Zeit zaehlen 429 als ein Ereignis
+RECOVER_AFTER = 10.0        # so lange Ruhe -> Tempo darf wieder steigen
+RECOVER_STEP_EVERY = 4.0    # Abstand zwischen zwei Beschleunigungsschritten
+MAX_INTERVAL = 5.0          # Notfall-Untergrenze: 1 Anfrage / 5 s
+
 
 class OebbClient:
     """Thread-sicherer API-Client: Keep-Alive-Verbindung pro Thread,
@@ -70,6 +78,8 @@ class OebbClient:
         self._min_interval = 1.0 / max_rps
         self._base_interval = self._min_interval
         self._last_request = 0.0
+        self._last_throttle = 0.0   # letzte Bremsung (fuer Cooldown/Erholung)
+        self._last_recover = 0.0
         # Verbindung UND Session/Token sind pro Thread: viele parallele Abfragen
         # auf EINER anonymen Session lassen die OeBB-Routing-Engine still
         # degenerieren (leere Ergebnisse) - eigene Session je Worker vermeidet das.
@@ -85,16 +95,30 @@ class OebbClient:
             self._last_request = time.time()
 
     def _slow_down(self):
-        """Nach HTTP 429: Tempo halbieren (erholt sich bei Erfolgen langsam wieder).
-        Deckel bewusst hoch (1 Anfrage/5s): bei strenger OeBB-Drosselung muss der
-        Client wirklich langsam werden koennen, sonst verbrennen alle Retries."""
+        """Nach HTTP 429: Tempo halbieren - aber hoechstens einmal pro Cooldown.
+        Parallele Worker melden dasselbe Limit; ohne diese Sperre faellt die Rate
+        nach einem einzigen Drossel-Schwung sofort auf die Untergrenze."""
         with self._rate_lock:
-            self._min_interval = min(self._min_interval * 2.0, 5.0)
+            now = time.time()
+            if now - self._last_throttle < THROTTLE_COOLDOWN:
+                return
+            self._last_throttle = now
+            self._min_interval = min(self._min_interval * 2.0, MAX_INTERVAL)
 
     def _recover_speed(self):
+        """Nach einer ruhigen Phase zuegig wieder beschleunigen (Halbierung je
+        Schritt). Frueher ~0.98 pro Erfolg - das brauchte hunderte Anfragen und
+        die Suche blieb praktisch dauerhaft im Schneckentempo."""
         with self._rate_lock:
-            if self._min_interval > self._base_interval:
-                self._min_interval = max(self._min_interval * 0.98, self._base_interval)
+            if self._min_interval <= self._base_interval:
+                return
+            now = time.time()
+            if now - self._last_throttle < RECOVER_AFTER:
+                return
+            if now - self._last_recover < RECOVER_STEP_EVERY:
+                return
+            self._last_recover = now
+            self._min_interval = max(self._min_interval * 0.5, self._base_interval)
 
     def _conn(self, timeout):
         c = getattr(self._local, "conn", None)
