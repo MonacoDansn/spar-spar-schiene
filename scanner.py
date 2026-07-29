@@ -29,6 +29,7 @@ JOBS_LOCK = threading.Lock()
 OVERPASS_URLS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
 ]
 PLACES_CACHE_FILE = os.path.join(stationsdb.DATA_DIR, "places_cache.json")
 _places_cache = None
@@ -48,20 +49,27 @@ def _osm_places(lat, lon, radius_km):
                 _places_cache = {}
         if key in _places_cache:
             return _places_cache[key]
-    query = (f'[out:json][timeout:50];'
+    query = (f'[out:json][timeout:35];'
              f'node["place"~"^(city|town|village)$"](around:{int(radius_km * 1000)},{lat},{lon});out;')
     data = urllib.parse.urlencode({"data": query}).encode("utf-8")
     result = None
     last_err = None
-    for url in OVERPASS_URLS:  # bei 504/Ueberlastung auf Spiegel-Server ausweichen
-        try:
-            req = urllib.request.Request(url, data=data,
-                                         headers={"User-Agent": "SparSparSchiene/1.0"})
-            with urllib.request.urlopen(req, timeout=60) as r:
-                result = json.loads(r.read().decode("utf-8"))
+    # Rueckfallebenen: drei Spiegel-Server, zwei Durchgaenge mit kurzer Pause -
+    # Overpass ist ein oeffentlicher Gratis-Dienst und gern mal ueberlastet.
+    for durchgang in (1, 2):
+        for url in OVERPASS_URLS:
+            try:
+                req = urllib.request.Request(url, data=data,
+                                             headers={"User-Agent": "SparSparSchiene/1.0"})
+                with urllib.request.urlopen(req, timeout=40) as r:
+                    result = json.loads(r.read().decode("utf-8"))
+                break
+            except Exception as e:
+                last_err = e
+        if result is not None:
             break
-        except Exception as e:
-            last_err = e
+        if durchgang == 1:
+            time.sleep(3)
     if result is None:
         raise last_err
     places = []
@@ -178,9 +186,9 @@ class ScanJob:
 
     def _stats_line(self):
         s = dict(self.stats)
-        return (f"Statistik: {s['queries']} Abfragen ({s['empty']} leer), "
-                f"{s['conns']} Verbindungen, {s['matches']} Zug-Matches, "
-                f"{s['price_fail']} Preisfehler")
+        return (f"Zusammenfassung: {s['queries']} Abfragen ({s['empty']} ohne Ergebnis), "
+                f"{s['conns']} Verbindungen geprüft, {s['matches']} passende Züge gefunden, "
+                f"{s['price_fail']} Preisabfragen fehlgeschlagen")
 
     # ---------- Events ----------
 
@@ -314,7 +322,7 @@ class ScanJob:
                 "toName": conn["to"]["name"],
             })
         if not soll_list:
-            raise RuntimeError("Keine Soll-Verbindungen gefunden. Datum/Stationen pruefen.")
+            raise RuntimeError("Keine Verbindungen auf deiner Strecke gefunden – bitte Datum und Bahnhöfe prüfen.")
         self.emit("soll", {"connections": soll_list})
 
         # Probe: geht es ohne travelAction? (spart 1/3 der Requests)
@@ -324,7 +332,7 @@ class ScanJob:
                 pm = self.client.prices([test[0]["id"]])
                 if pm and not next(iter(pm.values()))["error"]:
                     self.skip_travel_action = True
-                    self.emit("log", {"msg": "Optimierung aktiv: travelAction wird uebersprungen"})
+                    self.emit("log", {"msg": "⚡ Schnellmodus aktiv – ÖBB-Abfragen werden abgekürzt"})
         except Exception:
             pass
 
@@ -385,13 +393,13 @@ class ScanJob:
 
             combo_origins = [a for a in surviving_origins if attractive(a)]
             combo_dests = [b for b in surviving_dests if attractive(b)]
-            self.emit("log", {"msg": f"Attraktiv-Filter: {len(combo_origins)}/{len(surviving_origins)} Einstiege, "
-                                     f"{len(combo_dests)}/{len(surviving_dests)} Ziele (Sparschiene oder <= Soll-Preis)"})
+            self.emit("log", {"msg": f"Vorauswahl: {len(combo_origins)} von {len(surviving_origins)} Einstiegen und "
+                                     f"{len(combo_dests)} von {len(surviving_dests)} Zielen sehen vielversprechend aus"})
         combos = [(a, b) for a in combo_origins for b in combo_dests]
         self.pending_phases["C"] = len(combos)
         self.c_known = True
-        self.emit("log", {"msg": f"Phase C: {len(combos)} Kombinationen aus "
-                                 f"{len(combo_origins)} Einstiegen x {len(combo_dests)} Zielen"})
+        self.emit("log", {"msg": f"Teste jetzt {len(combos)} Kombinationen "
+                                 f"({len(combo_origins)} Einstiege × {len(combo_dests)} Ziele)"})
         self._phase_scan("C", "Kombinationen testen", combos,
                          lambda ab: self._try_pair(
                              ab[0], ab[1],
@@ -426,20 +434,23 @@ class ScanJob:
                 except Exception as e:
                     msg = str(e)
                     if msg == "nicht buchbar":
-                        self.emit("log", {"msg": f"uebersprungen (nicht buchbar): {self._item_name(item)}"})
+                        self.emit("log", {"msg": f"übersprungen (dort gibt es keine buchbare Verbindung): {self._item_name(item)}"})
                     elif msg.startswith("Zeitueberschreitung"):
                         self.timeout_streak += 1
-                        self.emit("log", {"msg": f"Zeitueberschreitung: {self._item_name(item)} - uebersprungen "
-                                                 f"({self.timeout_streak} in Folge)"})
+                        self.emit("log", {"msg": f"ÖBB antwortet gerade nicht ({self._item_name(item)}) – übersprungen "
+                                                 f"({self.timeout_streak}× in Folge)"})
                         if self.timeout_streak >= 10:
                             self.cancelled = True
                             pool.shutdown(wait=False, cancel_futures=True)
                             raise RuntimeError(
-                                "Abbruch: Die OeBB-API antwortet nicht mehr (10 Zeitueberschreitungen "
-                                "in Folge). Bitte in ein paar Minuten erneut versuchen - "
-                                "bisherige Ergebnisse bleiben erhalten.")
+                                "Abbruch: Die ÖBB-Server antworten gerade nicht mehr. "
+                                "Bitte in ein paar Minuten erneut versuchen – "
+                                "deine bisherigen Ergebnisse bleiben erhalten.")
+                    elif "HTTP 429" in msg:
+                        self.emit("log", {"msg": f"ÖBB bittet um langsameres Tempo – Suche wird automatisch "
+                                                 f"gedrosselt ({self._item_name(item)} übersprungen)"})
                     else:
-                        self.emit("log", {"msg": f"Fehler bei {self._item_name(item)}: {msg[:160]}"})
+                        self.emit("log", {"msg": f"Problem bei {self._item_name(item)}: {msg[:160]}"})
                     hits = []
                 if hits:
                     found += 1
@@ -476,9 +487,10 @@ class ScanJob:
         if radius_km >= 1:
             try:
                 places = _osm_places(center["lat"], center["lon"], radius_km)
-            except Exception as e:
+            except Exception:
                 places = []
-                self.emit("log", {"msg": f"OSM-Ortsabfrage fehlgeschlagen ({label}): {str(e)[:80]}"})
+                self.emit("log", {"msg": f"Ortsverzeichnis (OpenStreetMap) antwortet gerade nicht – "
+                                         f"Bushaltestellen werden nur rund um Bahnhöfe gesucht ({label})"})
             in_area = 0
             for pl in places:
                 if not stationsdb.in_half_disc(center["lat"], center["lon"],
@@ -489,7 +501,7 @@ class ScanJob:
                 key = pl["name"].lower()
                 if key not in towns:
                     towns[key] = (pl["name"], pl)
-            self.emit("log", {"msg": f"{in_area} Orte aus OpenStreetMap im Gebiet ({label})"})
+            self.emit("log", {"msg": f"{in_area} Orte im Suchgebiet gefunden ({label})"})
         items = list(towns.values())
         if not items:
             return
@@ -515,7 +527,7 @@ class ScanJob:
                 self.eta_tracker.record()
                 self._emit_progress("bus", f"Bushaltestellen suchen ({label})",
                                     done, len(items), added)
-        self.emit("log", {"msg": f"{added} Bushaltestellen ergaenzt ({label})"})
+        self.emit("log", {"msg": f"{added} Bushaltestellen zusätzlich aufgenommen ({label})"})
 
     def _find_bus_stop(self, town, near_station):
         cache = _load_bus_cache()

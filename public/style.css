@@ -95,6 +95,23 @@ button {
 button:disabled { background: #ccc; cursor: not-allowed; }
 button.secondary { background: #555; }
 #scan-hint { font-size: 13px; color: var(--gray); }
+button.small { padding: 6px 10px; font-size: 12px; }
+.debug-overlay {
+  position: fixed; inset: 0; z-index: 2000;
+  background: rgba(0,0,0,.5);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.debug-box {
+  background: #fff; border-radius: 12px; padding: 16px;
+  width: 100%; max-width: 640px; display: flex; flex-direction: column; gap: 10px;
+}
+.debug-box p { margin: 0; font-size: 13px; color: var(--gray); }
+.debug-box textarea {
+  width: 100%; height: 45vh; font-family: Consolas, monospace; font-size: 11px;
+  border: 1px solid #d0d0d5; border-radius: 8px; padding: 8px;
+}
+.progress-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.progress-head h2 { margin: 0; }
 
 #map { height: 420px; border-radius: 8px; }
 

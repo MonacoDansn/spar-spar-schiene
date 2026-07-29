@@ -106,6 +106,9 @@ public class LocalMainActivity extends Activity {
         environ.callAttr("__setitem__", "SPAR_PUBLIC_DIR", new File(root, "public").getAbsolutePath());
         environ.callAttr("__setitem__", "HOST", "127.0.0.1");
         environ.callAttr("__setitem__", "PORT", "8325");
+        // Sanfter als am PC: weniger 429-Bremsen der OeBB und schont den Akku
+        environ.callAttr("__setitem__", "SPAR_MAX_RPS", "8");
+        environ.callAttr("__setitem__", "SPAR_WORKERS", "10");
         Thread t = new Thread(() -> {
             // Ohne try/catch wuerde eine Python-Exception (z.B. fehlende Datendatei)
             // als unbehandelte Java-Thread-Exception den ganzen Prozess beenden.

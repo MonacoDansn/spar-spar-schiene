@@ -275,6 +275,78 @@ function fmtEta(sec, isMin) {
   return ` · noch ${isMin ? "mind. " : ""}${txt}`;
 }
 
+// ---------- Debug-Info kopieren ----------
+
+function buildDebugInfo() {
+  const g = (id) => (document.getElementById(id) || {}).textContent || "";
+  const results = { A: 0, B: 0, C: 0 };
+  state.results.forEach((r) => { if (results[r.phase] != null) results[r.phase]++; });
+  return [
+    "=== Spar Spar Schiene – Debug-Info ===",
+    "Zeit: " + new Date().toISOString(),
+    "Adresse: " + location.href,
+    "App-Brücke (Android): " + (window.SparApp ? "ja" : "nein (Browser)"),
+    "Gerät: " + navigator.userAgent,
+    "Von: " + (state.from ? `${state.from.name} (${state.from.id})` : "–"),
+    "Nach: " + (state.to ? `${state.to.name} (${state.to.id})` : "–"),
+    "Datum/Abfahrt: " + dateInput.value + " " + document.getElementById("time-input").value,
+    `Radien: ${radiusStart.value}/${radiusDest.value} km · Bus-Suche: ${document.getElementById("auto-bus").checked} · Kombinationen: ${document.getElementById("combo-mode").value}`,
+    "Extra-Haltestellen: " + (state.extraOrigins.length + state.extraDests.length),
+    "Scan-ID: " + (state.jobId || "–"),
+    "Status: " + g("phase-label") + " | " + g("progress-text"),
+    `Ergebnisse: ${state.results.length} gesamt (Abfahrt: ${results.A}, Ankunft: ${results.B}, Kreuz: ${results.C})`,
+    "--- Protokoll ---",
+    g("log") || "(leer)",
+  ].join("\n");
+}
+
+async function copyDebugInfo() {
+  const btn = document.getElementById("debug-copy");
+  const text = buildDebugInfo();
+  let ok = false;
+  try {
+    await navigator.clipboard.writeText(text);
+    ok = true;
+  } catch (e) { /* WebView/http: Fallback unten */ }
+  if (!ok) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    document.body.appendChild(ta);
+    ta.select();
+    try { ok = document.execCommand("copy"); } catch (e) { /* s.u. */ }
+    ta.remove();
+  }
+  if (!ok) {
+    // Letzte Rueckfallebene: Text anzeigen, damit er manuell kopiert werden kann
+    showDebugOverlay(text);
+  }
+  btn.textContent = ok ? "✅ Kopiert – einfach einfügen & schicken" : "🐞 Debug-Info kopieren";
+  if (ok) setTimeout(() => (btn.textContent = "🐞 Debug-Info kopieren"), 2500);
+}
+
+function showDebugOverlay(text) {
+  const wrap = document.createElement("div");
+  wrap.className = "debug-overlay";
+  const box = document.createElement("div");
+  box.className = "debug-box";
+  box.innerHTML = "<p>Automatisches Kopieren war nicht erlaubt – bitte Text markieren und kopieren:</p>";
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.readOnly = true;
+  const close = document.createElement("button");
+  close.textContent = "Schließen";
+  close.onclick = () => wrap.remove();
+  box.appendChild(ta);
+  box.appendChild(close);
+  wrap.appendChild(box);
+  document.body.appendChild(wrap);
+  ta.focus();
+  ta.select();
+}
+
+document.getElementById("debug-copy").onclick = copyDebugInfo;
+
 // Brücke zur Android-App (window.SparApp existiert nur im WebView der App)
 function notifyApp(fn, arg) {
   try {
