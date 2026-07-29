@@ -37,6 +37,32 @@ MIME = {
 }
 
 
+# ---------- Debug-Berichte (fluechtig im RAM, Abruf nur per Geheim-Kennung) ----------
+
+DEBUG_REPORTS = {}          # id -> text (Einfuege-Reihenfolge = Alter)
+DEBUG_MAX_REPORTS = 20
+DEBUG_MAX_CHARS = 100_000
+_debug_lock = threading.Lock()
+
+
+def store_debug_report(text):
+    """Bericht ablegen; gibt die zufaellige Abruf-Kennung zurueck.
+    Zusaetzlich ins Log drucken - auf Render als Backup einsehbar."""
+    import uuid
+    rid = uuid.uuid4().hex[:12]
+    with _debug_lock:
+        DEBUG_REPORTS[rid] = text[:DEBUG_MAX_CHARS]
+        while len(DEBUG_REPORTS) > DEBUG_MAX_REPORTS:
+            DEBUG_REPORTS.pop(next(iter(DEBUG_REPORTS)))
+    print(f"=== Debug-Bericht {rid} ===\n{text[:DEBUG_MAX_CHARS]}\n=== Ende {rid} ===")
+    return rid
+
+
+def get_debug_report(rid):
+    with _debug_lock:
+        return DEBUG_REPORTS.get(rid)
+
+
 def job_snapshot(job, light):
     """Scan-Zustand als JSON-faehiges Dict; light = ohne grosses results-Array."""
     snap = {"finished": job.finished, "phase": job.phase_state,
@@ -55,11 +81,14 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---------- Antwort-Helfer ----------
 
-    def _json(self, obj, status=200):
+    def _json(self, obj, status=200, cors=False):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        if cors:
+            # Debug-Endpunkte: auch aus der lokalen App (Origin 127.0.0.1) nutzbar
+            self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(body)
 
@@ -98,6 +127,20 @@ class Handler(BaseHTTPRequestHandler):
         return False
 
     def do_GET(self):
+        if self.path.startswith("/api/debug/"):
+            # Ohne Auth: Kennung ist ein 12-stelliges Zufallsgeheimnis
+            report = get_debug_report(self.path.split("/")[3].split("?")[0])
+            if report is None:
+                self._json({"error": "unbekannte Kennung"}, 404, cors=True)
+                return
+            body = report.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path == "/api/health":
             # Ohne Auth: prueft, ob die OeBB-API von diesem Server aus erreichbar ist
             try:
@@ -151,11 +194,22 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "not found"}, 404)
 
     def do_POST(self):
-        if not self._check_auth():
-            return
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
         length = int(self.headers.get("Content-Length") or 0)
+
+        if path == "/api/debug":
+            # Ohne Auth (die lokale App hat kein Passwort); streng groessenbegrenzt
+            raw = self.rfile.read(min(length, DEBUG_MAX_CHARS * 4)) if length else b""
+            text = raw.decode("utf-8", errors="replace").strip()
+            if not text:
+                self._json({"error": "leerer Bericht"}, 400, cors=True)
+                return
+            self._json({"id": store_debug_report(text)}, cors=True)
+            return
+
+        if not self._check_auth():
+            return
         body = {}
         if length:
             try:
@@ -164,7 +218,18 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "ungueltiges JSON"}, 400)
                 return
 
-        if path == "/api/scan":
+        if path == "/api/soll":
+            for field in ("from", "to", "datetime"):
+                if field not in body:
+                    self._json({"error": f"Feld fehlt: {field}"}, 400)
+                    return
+            try:
+                soll = scanner.build_soll_list(shared_client, body["from"], body["to"],
+                                               body["datetime"])
+                self._json({"connections": soll})
+            except Exception as e:
+                self._json({"error": str(e)}, 502)
+        elif path == "/api/scan":
             for field in ("from", "to", "datetime"):
                 if field not in body:
                     self._json({"error": f"Feld fehlt: {field}"}, 400)

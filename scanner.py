@@ -147,6 +147,43 @@ def town_from_station(name):
     return n.strip()
 
 
+def soll_key(trains):
+    """Eindeutiger Schluessel einer Soll-Verbindung (wie sollKey im Frontend)."""
+    return "+".join(trains)
+
+
+def filter_soll(soll_list, selected_keys):
+    """Beschraenkt die Soll-Liste auf die vorab ausgewaehlten Verbindungen.
+    Leere/fehlende Auswahl bedeutet: alle testen (bisheriges Verhalten)."""
+    if not selected_keys:
+        return soll_list
+    wanted = set(selected_keys)
+    return [s for s in soll_list if soll_key(s["trains"]) in wanted]
+
+
+def build_soll_list(client, start, dest, dep_str):
+    """Soll-Verbindungen (Referenz-Zuege inkl. Preis) fuer eine Strecke laden."""
+    if len(dep_str) == 16:
+        dep_str += ":00.000"
+    conns, price_map = client.connection_search(start, dest, datetime_departure=dep_str)
+    soll_list = []
+    for conn in conns:
+        info = price_map.get(conn["id"]) or {}
+        trains = oebb.connection_trains(conn)
+        if not trains:
+            continue
+        soll_list.append({
+            "trains": trains,
+            "dep": conn["from"]["departure"],
+            "arr": conn["to"]["arrival"],
+            "price": info.get("price"),
+            "sparschiene": info.get("sparschiene", False),
+            "fromName": conn["from"]["name"],
+            "toName": conn["to"]["name"],
+        })
+    return soll_list
+
+
 def _iso(dt):
     return dt.strftime("%Y-%m-%dT%H:%M:%S.000")
 
@@ -305,24 +342,16 @@ class ScanJob:
 
         # ---- Soll-Verbindungen ----
         self.emit("phase", {"name": "soll", "label": "Soll-Verbindungen laden"})
-        conns, price_map = self.client.connection_search(start, dest, datetime_departure=dep_str)
-        soll_list = []
-        for conn in conns:
-            info = price_map.get(conn["id"]) or {}
-            trains = oebb.connection_trains(conn)
-            if not trains:
-                continue
-            soll_list.append({
-                "trains": trains,
-                "dep": conn["from"]["departure"],
-                "arr": conn["to"]["arrival"],
-                "price": info.get("price"),
-                "sparschiene": info.get("sparschiene", False),
-                "fromName": conn["from"]["name"],
-                "toName": conn["to"]["name"],
-            })
+        soll_list = build_soll_list(self.client, start, dest, dep_str)
         if not soll_list:
             raise RuntimeError("Keine Verbindungen auf deiner Strecke gefunden – bitte Datum und Bahnhöfe prüfen.")
+        selected = p.get("selectedSoll") or []
+        soll_list = filter_soll(soll_list, selected)
+        if not soll_list:
+            raise RuntimeError("Keine der vorab ausgewählten Verbindungen ist mehr verfügbar – "
+                               "bitte Verbindungen neu laden.")
+        if selected:
+            self.emit("log", {"msg": f"Suche eingegrenzt auf {len(soll_list)} ausgewählte Verbindung(en)"})
         self.emit("soll", {"connections": soll_list})
 
         # Probe: geht es ohne travelAction? (spart 1/3 der Requests)
