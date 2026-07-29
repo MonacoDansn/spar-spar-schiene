@@ -225,7 +225,7 @@ class ScanJob:
         self.timeout_streak = 0  # Zeitueberschreitungen in Folge (Abbruch-Kriterium)
         self.stats_lock = threading.Lock()
         self.stats = {"queries": 0, "empty": 0, "conns": 0, "matches": 0, "price_fail": 0,
-                      "throttled": 0}
+                      "throttled": 0, "partial": 0}
         self.eta_tracker = EtaTracker()
         self.phase_state = None    # letzter Fortschritt inkl. ETA (fuer Snapshot/App)
         self.pending_phases = {}   # bekannte, noch nicht gestartete Phasen: name -> total
@@ -246,8 +246,10 @@ class ScanJob:
             line += (f" · ÖBB-Bremse: {self.client.rate_hits}× gedrosselt, "
                      f"{round(self.client.retry_wait)} s Wartezeit, aktuell "
                      f"{round(1 / self.client._min_interval, 1)} Abfragen/s")
+        if s["partial"]:
+            line += f" · {s['partial']} Bahnhöfe nur teilweise geprüft"
         if s["throttled"]:
-            line += (f" – ⚠ {s['throttled']} Bahnhöfe blieben wegen ÖBB-Drosselung ungeprüft "
+            line += (f" – ⚠ {s['throttled']} Bahnhöfe blieben wegen ÖBB-Ablehnungen ungeprüft "
                      f"(später erneut scannen lohnt sich)")
         return line
 
@@ -666,18 +668,30 @@ class ScanJob:
         all_hits = []
         seen = set()
         anchors = [("dep", d) for d in deps or []] + [("arr", a) for a in arrs or []]
+        fehler = None
         for kind, anchor in anchors:
             if self.cancelled:
                 return all_hits
-            conns = self._search(from_st, to_st,
-                                 dep=anchor if kind == "dep" else None,
-                                 arr=anchor if kind == "arr" else None)
-            fresh = [c for c in conns if c["id"] not in seen]
-            seen.update(c["id"] for c in fresh)
-            hits = self._match_and_price(fresh, soll_list)
+            # Scheitert EIN Zeitanker (sporadische OeBB-Ablehnung), duerfen die
+            # Treffer der anderen nicht verloren gehen - sie sind bereits gemeldet
+            # und der Bahnhof muss fuer Phase C als Kandidat erhalten bleiben.
+            try:
+                conns = self._search(from_st, to_st,
+                                     dep=anchor if kind == "dep" else None,
+                                     arr=anchor if kind == "arr" else None)
+                fresh = [c for c in conns if c["id"] not in seen]
+                seen.update(c["id"] for c in fresh)
+                hits = self._match_and_price(fresh, soll_list)
+            except oebb.OebbError as e:
+                fehler = e
+                continue
             for conn, soll, info in hits:
                 self._add_result(from_st, to_st, conn, info, soll, phase)
             all_hits.extend(hits)
+        if fehler is not None:
+            if not all_hits:
+                raise fehler          # nichts erreicht -> Wiederholungs-Warteschlange
+            self._stat(partial=1)     # teilweise geprueft, Treffer bleiben gueltig
         return all_hits
 
 

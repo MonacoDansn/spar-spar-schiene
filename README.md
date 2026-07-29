@@ -160,6 +160,10 @@ gewohnte Oberfläche von `127.0.0.1:8325`.
 
 - Inoffizielles Hobby-Tool; die ÖBB kann die Schnittstelle jederzeit ändern.
 - Rate-Limit: max. 8 Requests/s (in `oebb.py` konfigurierbar).
+- **HTTP 429 der ÖBB ist nicht tempoabhängig** (gemessen 2026-07-29: Ablehnungen
+  auch bei 0,5 Abfragen/s). Langsamer werden hilft daher nicht; die Strategie ist
+  kurz wiederholen und hartnäckige Kandidaten am Phasenende erneut versuchen.
+  Wie oft gedrosselt wurde, steht in der Zusammenfassung am Scan-Ende.
 - Tickets gelten offiziell ab dem aufgedruckten Startbahnhof. Späteres Zusteigen im
   selben Zug ist gängige Praxis, aber ohne Rechtsanspruch (z.B. bei Zugausfall vor
   deinem Bahnhof besteht kein Beförderungsanspruch ab dort).
