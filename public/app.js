@@ -9,6 +9,8 @@ const state = {
   lastSeq: -1,
   extraOrigins: [],
   extraDests: [],
+  sollLoaded: false,        // Schritt ① erledigt?
+  scanRunning: false,
   sollSelected: new Set(),  // Keys der angehakten Soll-Verbindungen
 };
 
@@ -65,7 +67,21 @@ function updateMap() {
     map.fitBounds(L.latLngBounds(
       [state.from.lat, state.from.lon], [state.to.lat, state.to.lon]).pad(0.6));
   }
-  scanBtn.disabled = !(state.from && state.to);
+  loadBtn.disabled = !(state.from && state.to);
+}
+
+// Strecke oder Zeitpunkt geaendert -> geladene Verbindungen gelten nicht mehr
+function invalidateSoll() {
+  state.sollLoaded = false;
+  state.sollSelected = new Set();
+  document.getElementById("soll-card").style.display = "none";
+  updateScanBtn();
+}
+
+function updateScanBtn() {
+  const n = state.sollSelected.size;
+  scanBtn.textContent = state.sollLoaded && n ? `② Scan starten (${n} ausgewählt)` : "② Scan starten";
+  scanBtn.disabled = state.scanRunning || !state.sollLoaded || n === 0;
 }
 
 // ---------- Autocomplete ----------
@@ -101,8 +117,8 @@ function setupSuggest(input, sugg, onInput, onPick) {
 function setupAutocomplete(inputId, suggId, key) {
   const input = document.getElementById(inputId);
   setupSuggest(input, document.getElementById(suggId),
-    () => { state[key] = null; scanBtn.disabled = true; },
-    (s) => { state[key] = s; input.value = s.name; updateMap(); });
+    () => { state[key] = null; loadBtn.disabled = true; invalidateSoll(); },
+    (s) => { state[key] = s; input.value = s.name; invalidateSoll(); updateMap(); });
 }
 
 setupAutocomplete("from-input", "from-sugg", "from");
@@ -140,14 +156,18 @@ setupExtraStations("extra-dest-input", "extra-dest-sugg", "extra-dest-chips", "e
 
 // ---------- Formular ----------
 
+const loadBtn = document.getElementById("load-btn");
 const scanBtn = document.getElementById("scan-btn");
 const cancelBtn = document.getElementById("cancel-btn");
 const radiusStart = document.getElementById("radius-start");
 const radiusDest = document.getElementById("radius-dest");
 const dateInput = document.getElementById("date-input");
+const timeInput = document.getElementById("time-input");
 
 const tomorrow = new Date(Date.now() + 86400000);
 dateInput.value = tomorrow.toISOString().slice(0, 10);
+dateInput.onchange = invalidateSoll;
+timeInput.onchange = invalidateSoll;
 
 radiusStart.oninput = () => {
   document.getElementById("radius-start-val").textContent = radiusStart.value;
@@ -160,19 +180,53 @@ radiusDest.oninput = () => {
 
 document.getElementById("sort-mode").onchange = () => renderResults();
 
-// ---------- Scan ----------
+// ---------- Schritt ①: Verbindungen laden ----------
+
+loadBtn.onclick = async () => {
+  loadBtn.disabled = true;
+  loadBtn.textContent = "⏳ lade Verbindungen…";
+  try {
+    const res = await fetch("/api/soll", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: state.from,
+        to: state.to,
+        datetime: dateInput.value + "T" + timeInput.value,
+      }),
+    });
+    const data = await res.json();
+    if (!data.connections || !data.connections.length) {
+      alert(data.error || "Keine Verbindungen gefunden – bitte Datum und Bahnhöfe prüfen.");
+      return;
+    }
+    renderSoll(data.connections);
+    state.sollLoaded = true;
+    document.getElementById("soll-card").style.display = "";
+    document.getElementById("soll-card").scrollIntoView({ behavior: "smooth", block: "nearest" });
+    updateScanBtn();
+  } catch (e) {
+    alert("Verbindungen laden fehlgeschlagen: " + e);
+  } finally {
+    loadBtn.textContent = "① Verbindungen laden";
+    loadBtn.disabled = !(state.from && state.to);
+  }
+};
+
+// ---------- Schritt ②: Scan ----------
 
 scanBtn.onclick = async () => {
   const body = {
     from: state.from,
     to: state.to,
-    datetime: dateInput.value + "T" + document.getElementById("time-input").value,
+    datetime: dateInput.value + "T" + timeInput.value,
     radiusStart: +radiusStart.value,
     radiusDest: +radiusDest.value,
     extraOrigins: state.extraOrigins,
     extraDests: state.extraDests,
     autoBus: document.getElementById("auto-bus").checked,
     comboMode: document.getElementById("combo-mode").value,
+    selectedSoll: [...state.sollSelected],  // gesucht wird nur fuer die Auswahl
   };
   const res = await fetch("/api/scan", {
     method: "POST",
@@ -190,17 +244,15 @@ scanBtn.onclick = async () => {
     g.style.display = "none";
     g.querySelector("tbody").innerHTML = "";
   });
-  document.getElementById("soll-table").querySelector("tbody").innerHTML = "";
   document.getElementById("log").textContent = "";
   document.getElementById("phase-label").textContent = "…";
   document.getElementById("progress-fill").style.width = "0%";
   document.getElementById("progress-text").textContent = "";
-  state.sollSelected = new Set();
   document.getElementById("progress-card").style.display = "";
   document.getElementById("results-card").style.display = "none";
-  document.getElementById("soll-card").style.display = "none";
   mapLayers.candidates.clearLayers();
   mapLayers.hits.clearLayers();
+  state.scanRunning = true;
   scanBtn.disabled = true;
   cancelBtn.style.display = "";
   document.querySelectorAll(".board-name").forEach((e) => (e.textContent = state.from.name));
@@ -252,6 +304,37 @@ function connectEvents() {
 }
 
 // ---------- Events ----------
+
+function renderSoll(connections) {
+  const tbody = document.getElementById("soll-table").querySelector("tbody");
+  tbody.innerHTML = "";
+  state.sollSelected = new Set();
+  connections.forEach((c) => {
+    const key = sollKey(c.trains);
+    state.sollSelected.add(key);
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.className = "s-check";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = true;
+    cb.onchange = () => {
+      if (cb.checked) state.sollSelected.add(key);
+      else state.sollSelected.delete(key);
+      renderResults();
+      updateScanBtn();
+    };
+    td.appendChild(cb);
+    tr.appendChild(td);
+    tr.insertAdjacentHTML("beforeend",
+      `<td class="s-dep">${fmtDate(c.dep)} ${fmtTime(c.dep)}</td><td class="s-arr">${fmtTime(c.arr)}</td>` +
+      `<td class="s-trains trains">${c.trains.join(" → ")}</td>` +
+      `<td class="s-price price">${c.price != null ? fmtPrice(c.price) : "–"}${c.sparschiene ? '<span class="tag">Sparschiene</span>' : ""}</td>`);
+    tbody.appendChild(tr);
+  });
+  document.getElementById("soll-card").style.display = "";
+  updateScanBtn();
+}
 
 function logLine(msg) {
   const log = document.getElementById("log");
@@ -347,6 +430,40 @@ function showDebugOverlay(text) {
 
 document.getElementById("debug-copy").onclick = copyDebugInfo;
 
+// Debug-Bericht an den (eigenen) Server senden - aus der lokalen App geht er
+// an die Render-Instanz, sonst an den Server, der die Seite ausliefert.
+const DEBUG_REMOTE = "https://spar-spar-schiene.onrender.com";
+
+function debugEndpoint() {
+  const lokal = location.hostname === "127.0.0.1" || location.hostname === "localhost";
+  return (lokal ? DEBUG_REMOTE : "") + "/api/debug";
+}
+
+async function sendDebugInfo() {
+  const btn = document.getElementById("debug-send");
+  btn.disabled = true;
+  btn.textContent = "⏳ sende…";
+  try {
+    // text/plain vermeidet den CORS-Preflight (einfache Anfrage)
+    const res = await fetch(debugEndpoint(), {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=UTF-8" },
+      body: buildDebugInfo(),
+    });
+    const data = await res.json();
+    if (!data.id) throw new Error(data.error || "keine Kennung erhalten");
+    logLine(`🚀 Debug-Bericht gesendet – Kennung: ${data.id} (diese Kennung genügt für die Fehlersuche)`);
+    btn.textContent = `✅ Gesendet: ${data.id}`;
+  } catch (e) {
+    logLine("Debug-Bericht konnte nicht gesendet werden: " + e);
+    btn.textContent = "❌ Senden fehlgeschlagen";
+  }
+  btn.disabled = false;
+  setTimeout(() => (btn.textContent = "🚀 An Server senden"), 6000);
+}
+
+document.getElementById("debug-send").onclick = sendDebugInfo;
+
 // Brücke zur Android-App (window.SparApp existiert nur im WebView der App)
 function notifyApp(fn, arg) {
   try {
@@ -374,35 +491,9 @@ function handleEvent(ev) {
         fmtEta(d.eta, d.etaMin);
       break;
     }
-    case "soll": {
-      const tbody = document.getElementById("soll-table").querySelector("tbody");
-      tbody.innerHTML = "";
-      state.sollSelected = new Set();
-      d.connections.forEach((c) => {
-        const key = sollKey(c.trains);
-        state.sollSelected.add(key);
-        const tr = document.createElement("tr");
-        const td = document.createElement("td");
-        td.className = "s-check";
-        const cb = document.createElement("input");
-        cb.type = "checkbox";
-        cb.checked = true;
-        cb.onchange = () => {
-          if (cb.checked) state.sollSelected.add(key);
-          else state.sollSelected.delete(key);
-          renderResults();
-        };
-        td.appendChild(cb);
-        tr.appendChild(td);
-        tr.insertAdjacentHTML("beforeend",
-          `<td class="s-dep">${fmtDate(c.dep)} ${fmtTime(c.dep)}</td><td class="s-arr">${fmtTime(c.arr)}</td>` +
-          `<td class="s-trains trains">${c.trains.join(" → ")}</td>` +
-          `<td class="s-price price">${c.price != null ? fmtPrice(c.price) : "–"}${c.sparschiene ? '<span class="tag">Sparschiene</span>' : ""}</td>`);
-        tbody.appendChild(tr);
-      });
-      document.getElementById("soll-card").style.display = "";
+    case "soll":
+      renderSoll(d.connections);
       break;
-    }
     case "candidates": {
       const addDot = (s, railColor) =>
         L.circleMarker([s.lat, s.lon],
@@ -441,7 +532,8 @@ function handleEvent(ev) {
 
 function finishScan() {
   notifyApp("scanFinished");
-  scanBtn.disabled = false;
+  state.scanRunning = false;
+  updateScanBtn();
   cancelBtn.style.display = "none";
   if (state.evtSource) state.evtSource.close();
 }

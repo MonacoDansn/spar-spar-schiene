@@ -67,7 +67,8 @@
       </div>
     </div>
     <div class="actions">
-      <button id="scan-btn" disabled>🔍 Scan starten</button>
+      <button id="load-btn" disabled>① Verbindungen laden</button>
+      <button id="scan-btn" disabled>② Scan starten</button>
       <button id="cancel-btn" class="secondary" style="display:none">Abbrechen</button>
       <span id="scan-hint"></span>
     </div>
@@ -80,7 +81,10 @@
   <section class="card" id="progress-card" style="display:none">
     <div class="progress-head">
       <h2 id="phase-label">…</h2>
-      <button id="debug-copy" class="secondary small" title="Alle Infos zum Scan in die Zwischenablage kopieren – zum Weiterschicken bei Problemen">🐞 Debug-Info kopieren</button>
+      <span class="debug-btns">
+        <button id="debug-copy" class="secondary small" title="Alle Infos zum Scan in die Zwischenablage kopieren – zum Weiterschicken bei Problemen">🐞 Kopieren</button>
+        <button id="debug-send" class="secondary small" title="Debug-Bericht an den Server senden – du bekommst eine kurze Kennung zur Weitergabe">🚀 An Server senden</button>
+      </span>
     </div>
     <div class="progressbar"><div id="progress-fill"></div></div>
     <div id="progress-text"></div>
@@ -88,9 +92,9 @@
   </section>
 
   <section class="card" id="soll-card" style="display:none">
-    <h2>Deine Soll-Verbindungen (Referenz)</h2>
-    <p class="note">☑️ Nur angehakte Verbindungen werden in der Ergebnisliste angezeigt —
-      so kannst du auf <b>deinen</b> Zug filtern.</p>
+    <h2>Deine Verbindungen — Auswahl für den Scan</h2>
+    <p class="note">☑️ Hake an, welche Verbindungen für dich infrage kommen —
+      <b>gesucht wird nur für die angehakten</b> (und nur sie erscheinen in der Ergebnisliste).</p>
     <table id="soll-table">
       <thead><tr><th></th><th>Ab</th><th>An</th><th>Züge</th><th>Normalpreis</th></tr></thead>
       <tbody></tbody>
