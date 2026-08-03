@@ -51,23 +51,43 @@ def _resolve_eva(eva):
     return _geo_cache[eva]
 
 
-def _rail_geometry(coords):
-    """Ruft das OSRM-Zugprofil fuer die geordneten Wegpunkte -> [[lat,lon],...] entlang
-    der Gleise, oder None bei Fehler (dann zeichnet das Frontend eine gerade Linie)."""
-    if len(coords) < 2:
-        return None
-    pts = ";".join(f"{lon},{lat}" for lat, lon in coords)  # OSRM erwartet lon,lat
-    url = OSRM_RAIL + pts + "?overview=full&geometries=geojson&steps=false"
+def _rail_leg(a, b):
+    """Bahn-Routing zwischen ZWEI Punkten -> ([[lat,lon],...], distanz_m) oder (None,None).
+    Nur zwei Wegpunkte -> der Router kann keinen Umweg ueber einen falschen
+    Zwischenpunkt nehmen."""
+    url = f"{OSRM_RAIL}{a['lon']},{a['lat']};{b['lon']},{b['lat']}?overview=full&geometries=geojson&steps=false"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "SparSparSchiene/1.0"})
         with urllib.request.urlopen(req, timeout=20) as r:
             data = json.loads(r.read().decode("utf-8"))
         if data.get("code") != "Ok" or not data.get("routes"):
-            return None
-        geo = data["routes"][0].get("geometry", {}).get("coordinates", [])
-        return [[lat, lon] for lon, lat in geo]  # zurueck zu lat,lon fuer Leaflet
+            return None, None
+        rt = data["routes"][0]
+        geo = rt.get("geometry", {}).get("coordinates", [])
+        return [[lat, lon] for lon, lat in geo], rt.get("distance")
     except Exception:
-        return None
+        return None, None
+
+
+def _build_route(stops, modes):
+    """Segmentweise Strecke: Zug-Beine entlang der Gleise, Bus/Fussweg gerade.
+    Verwirft implausible Router-Ergebnisse (schlechter Gleis-Snap) -> gerade Linie."""
+    segs = []
+    for i in range(len(stops) - 1):
+        a, b = stops[i], stops[i + 1]
+        if not a or not b:
+            continue
+        mode = modes[i] if i < len(modes) else "other"
+        straight = [[a["lat"], a["lon"]], [b["lat"], b["lon"]]]
+        line = straight
+        if mode == "train":
+            geo, dist = _rail_leg(a, b)
+            direct_km = stationsdb.haversine_km(a["lat"], a["lon"], b["lat"], b["lon"])
+            # Plausibel, wenn die Gleisstrecke nicht absurd viel laenger ist als Luftlinie
+            if geo and dist is not None and dist / 1000.0 <= direct_km * 2.5 + 5:
+                line = geo
+        segs.append({"mode": mode, "line": line})
+    return segs
 
 MIME = {
     ".html": "text/html; charset=utf-8",
@@ -228,13 +248,15 @@ class Handler(BaseHTTPRequestHandler):
             out = {e: _resolve_eva(e) for e in evas[:60] if _resolve_eva(e)}
             self._json(out)
         elif path == "/api/route":
-            # Bahntrassen-Geometrie fuer eine Verbindung (geordnete eva-Liste)
-            evas = [e for e in (qs.get("evas") or [""])[0].split(",") if e][:60]
-            key = ",".join(evas)
-            stops = [s for s in (_resolve_eva(e) for e in evas) if s]
+            # Bahntrassen-Geometrie: geordnete eva-Liste + Verkehrsmittel je Bein (modes)
+            evas = [e for e in (qs.get("evas") or [""])[0].split(",")][:60]
+            modes = [m for m in (qs.get("modes") or [""])[0].split(",")]
+            key = ",".join(evas) + "|" + ",".join(modes)
+            resolved = [_resolve_eva(e) if e else None for e in evas]
+            stops = [s for s in resolved if s]
             if key not in _route_cache:
-                _route_cache[key] = _rail_geometry([(s["lat"], s["lon"]) for s in stops])
-            self._json({"stops": stops, "line": _route_cache[key]})
+                _route_cache[key] = _build_route(resolved, modes)
+            self._json({"stops": stops, "segments": _route_cache[key]})
         elif path == "/api/history":
             self._json(scanner.list_history())
         elif path.startswith("/api/history/"):

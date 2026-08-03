@@ -38,21 +38,33 @@ const routeCache = {};  // eva-Kette -> {stops, line}
 // (Geometrie vom Server / OSM-Gleis-Routing) + markiert Ein-/Ausstieg.
 async function showRoute(r) {
   mapLayers.route.clearLayers();
-  const evas = (r.path || []).map((p) => p.eva).filter(Boolean);
-  const key = evas.join(",");
+  const evas = (r.path || []).map((p) => p.eva || "");
+  const modes = r.modes || [];
+  const key = evas.join(",") + "|" + modes.join(",");
   let data = routeCache[key];
   if (!data) {
     try {
-      data = await (await fetch("/api/route?evas=" + encodeURIComponent(key))).json();
+      data = await (await fetch(`/api/route?evas=${encodeURIComponent(evas.join(","))}&modes=${encodeURIComponent(modes.join(","))}`)).json();
       routeCache[key] = data;
-    } catch (e) { data = { stops: [], line: null }; }
+    } catch (e) { data = { stops: [], segments: [] }; }
   }
   const stops = data.stops || [];
-  // Bahntrasse, falls verfuegbar; sonst gerade Linie durch die Halte (Rueckfallebene)
-  const line = (data.line && data.line.length >= 2)
-    ? data.line : stops.map((s) => [s.lat, s.lon]);
-  if (line.length >= 2) {
+  const segments = data.segments || [];
+  const allPts = [];
+  // Zug-Abschnitte durchgezogen (lila), Bus/Fussweg gestrichelt (grau)
+  segments.forEach((seg) => {
+    if (!seg.line || seg.line.length < 2) return;
+    const isTrain = seg.mode === "train";
+    L.polyline(seg.line, isTrain
+      ? { color: "#7b2ff7", weight: 5, opacity: 0.85 }
+      : { color: "#888", weight: 3, opacity: 0.7, dashArray: "6 6" }).addTo(mapLayers.route);
+    seg.line.forEach((p) => allPts.push(p));
+  });
+  // Fallback: keine Segmente -> gerade Linie durch die Halte
+  if (!segments.length && stops.length >= 2) {
+    const line = stops.map((s) => [s.lat, s.lon]);
     L.polyline(line, { color: "#7b2ff7", weight: 5, opacity: 0.85 }).addTo(mapLayers.route);
+    line.forEach((p) => allPts.push(p));
   }
   stops.forEach((s, i) =>
     L.circleMarker([s.lat, s.lon],
@@ -64,10 +76,10 @@ async function showRoute(r) {
       L.marker([st.lat, st.lon], {
         icon: L.divIcon({ className: "", html: `<div class="stop-pin" style="background:${col}"></div>`, iconSize: [16, 16], iconAnchor: [8, 8] }),
       }).bindTooltip(`${lbl}: ${st.name}`).addTo(mapLayers.route);
+      allPts.push([st.lat, st.lon]);
     }
   });
-  const bounds = line.concat([state.from, state.to].filter((s) => s && s.lat).map((s) => [s.lat, s.lon]));
-  if (bounds.length) map.fitBounds(L.latLngBounds(bounds).pad(0.15));
+  if (allPts.length) map.fitBounds(L.latLngBounds(allPts).pad(0.15));
   document.getElementById("map-card").scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 

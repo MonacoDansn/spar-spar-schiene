@@ -364,25 +364,42 @@ def covers(candidate_trains, soll_trains):
     return all(t in it for t in soll_trains)
 
 
-def connection_path(connection):
-    """Geordnete Stationsfolge der Verbindung: [{name, eva}, ...].
+def _section_mode(sec):
+    """'train' fuer Zug-Abschnitte, sonst 'other' (Bus, Fussweg, Umstieg)."""
+    if sec.get("type") == "journey" and (sec.get("category") or {}).get("train"):
+        return "train"
+    return "other"
 
-    Nutzt die Ein-/Ausstiegspunkte jeder Section; aufeinanderfolgende Duplikate
-    (Umstiegsbahnhof taucht als Ankunft UND Abfahrt auf) werden zusammengefasst.
-    Die eva-Nummer (esn) laesst sich per Stationssuche zu Koordinaten aufloesen.
+
+def connection_segments(connection):
+    """Verbindung als Punktfolge + Verkehrsmittel je Abschnitt.
+
+    Rueckgabe: {"path": [{name, eva}, ...], "modes": [mode_leg0, mode_leg1, ...]}
+    wobei modes[i] das Verkehrsmittel zwischen path[i] und path[i+1] ist.
+    Nur 'train'-Abschnitte werden spaeter entlang der Gleise geroutet; Bus/Fussweg
+    bleiben gerade Linien (sonst snappt der Bahn-Router sie auf fremde Gleise).
     """
     path = []
+    modes = []
     for sec in connection.get("sections") or []:
-        for end in ("from", "to"):
-            st = sec.get(end) or {}
-            eva = st.get("esn")
-            name = st.get("name")
-            if not name:
-                continue
-            if path and path[-1].get("eva") == eva:
-                continue
-            path.append({"name": name, "eva": eva})
-    return path
+        frm = sec.get("from") or {}
+        to = sec.get("to") or {}
+        if not frm.get("name") or not to.get("name"):
+            continue
+        if not path:
+            path.append({"name": frm["name"], "eva": frm.get("esn")})
+        elif path[-1].get("eva") != frm.get("esn"):
+            # Luecke (selten): Verbindungspunkt einfuegen, Bein als 'other'
+            path.append({"name": frm["name"], "eva": frm.get("esn")})
+            modes.append("other")
+        path.append({"name": to["name"], "eva": to.get("esn")})
+        modes.append(_section_mode(sec))
+    return {"path": path, "modes": modes}
+
+
+def connection_path(connection):
+    """Nur die Punktfolge (Rueckwaertskompatibel)."""
+    return connection_segments(connection)["path"]
 
 
 def booking_url(connection, lang="de", adults=1):

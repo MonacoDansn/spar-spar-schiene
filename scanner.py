@@ -399,7 +399,7 @@ class ScanJob:
             "lat": ticket_from.get("lat"),
             "lon": ticket_from.get("lon"),
             "bookUrl": oebb.booking_url(conn),
-            "path": oebb.connection_path(conn),
+            **{k: v for k, v in oebb.connection_segments(conn).items()},  # path + modes
         }
         old = self.results.get(key)
         if old is None or price < old["price"]:
