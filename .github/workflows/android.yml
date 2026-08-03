@@ -3,7 +3,11 @@ name: Android APK bauen
 on:
   push:
     paths:
+      # Die lokale App buendelt den geteilten Code -> bei allen diesen Aenderungen neu bauen
       - "android/**"
+      - "*.py"
+      - "public/**"
+      - "data/stations_full.csv"
       - ".github/workflows/android.yml"
   workflow_dispatch:
 
