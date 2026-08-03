@@ -161,6 +161,23 @@ tr.best { background: #eaf7ee; }
 .trains { font-family: Consolas, monospace; font-size: 13px; }
 .note { font-size: 13px; color: var(--gray); }
 
+tr.clickable { cursor: pointer; }
+tr.clickable:hover { background: #f5f0ff; }
+tr.selected { background: #ede4ff !important; box-shadow: inset 3px 0 0 #7b2ff7; }
+.stop-pin {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid #fff; box-shadow: 0 0 3px rgba(0,0,0,.5);
+}
+.hist-row {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px;
+  padding: 10px 12px; border: 1px solid #eee; border-radius: 8px;
+  margin-bottom: 6px; cursor: pointer;
+}
+.hist-row:hover { background: #f5f0ff; border-color: #7b2ff7; }
+.hist-route { font-weight: 600; }
+.hist-meta { font-size: 13px; color: var(--gray); }
+.hist-when { margin-left: auto; font-size: 12px; color: var(--gray); }
+
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .chip {
   background: #eef1f6;

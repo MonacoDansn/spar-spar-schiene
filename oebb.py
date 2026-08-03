@@ -364,6 +364,54 @@ def covers(candidate_trains, soll_trains):
     return all(t in it for t in soll_trains)
 
 
+def connection_path(connection):
+    """Geordnete Stationsfolge der Verbindung: [{name, eva}, ...].
+
+    Nutzt die Ein-/Ausstiegspunkte jeder Section; aufeinanderfolgende Duplikate
+    (Umstiegsbahnhof taucht als Ankunft UND Abfahrt auf) werden zusammengefasst.
+    Die eva-Nummer (esn) laesst sich per Stationssuche zu Koordinaten aufloesen.
+    """
+    path = []
+    for sec in connection.get("sections") or []:
+        for end in ("from", "to"):
+            st = sec.get(end) or {}
+            eva = st.get("esn")
+            name = st.get("name")
+            if not name:
+                continue
+            if path and path[-1].get("eva") == eva:
+                continue
+            path.append({"name": name, "eva": eva})
+    return path
+
+
+def booking_url(connection, lang="de", adults=1):
+    """Deep-Link in den OeBB-Ticketshop, der Von/Nach/Datum/Zeit vorausfuellt.
+
+    Parameter-Namen/Format aus dem Shop-Bundle (web.main.js) verifiziert:
+    stationOrigEva/Name, stationDestEva/Name (eva = esn der Verbindung, NICHT die
+    Shop-Stationsnummer!), outwardDate=YYYY-MM-DD, outwardTime=HH:MM, numberOfAdults.
+    Faellt bei fehlender esn auf die Ticketshop-Startseite zurueck.
+    """
+    frm = connection.get("from") or {}
+    to = connection.get("to") or {}
+    base = f"https://shop.oebbtickets.at/{lang}/ticket"
+    if not frm.get("esn") or not to.get("esn"):
+        return base
+    dep = frm.get("departure") or ""  # z.B. 2026-07-18T08:30:00.000
+    params = {
+        "stationOrigEva": frm["esn"],
+        "stationOrigName": frm.get("name", ""),
+        "stationDestEva": to["esn"],
+        "stationDestName": to.get("name", ""),
+        "numberOfAdults": adults,
+    }
+    if len(dep) >= 16:
+        params["outwardDate"] = dep[:10]
+        params["outwardTime"] = dep[11:16]
+    return base + "?" + urllib.parse.urlencode(params)
+
+
 if __name__ == "__main__":
     c = OebbClient()
     neumarkt = {"id": 1250304, "name": "Neumarkt/Wallersee Bahnhof"}

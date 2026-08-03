@@ -40,6 +40,67 @@ PLACES_CACHE_FILE = os.path.join(stationsdb.DATA_DIR, "places_cache.json")
 _places_cache = None
 _places_lock = threading.Lock()
 
+# ---------- Verlauf/Persistenz: Scans ueberleben Neustart/Sleep ----------
+HISTORY_DIR = os.path.join(stationsdb.DATA_DIR, "history")
+HISTORY_MAX = 60
+_history_lock = threading.Lock()
+
+
+def _history_path(job_id):
+    return os.path.join(HISTORY_DIR, f"{job_id}.json")
+
+
+def save_history(record):
+    with _history_lock:
+        try:
+            os.makedirs(HISTORY_DIR, exist_ok=True)
+            tmp = _history_path(record["id"]) + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(record, f, ensure_ascii=False)
+            os.replace(tmp, _history_path(record["id"]))
+            files = sorted(
+                (os.path.join(HISTORY_DIR, f) for f in os.listdir(HISTORY_DIR) if f.endswith(".json")),
+                key=os.path.getmtime, reverse=True)
+            for p in files[HISTORY_MAX:]:
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+        except OSError:
+            pass
+
+
+def list_history():
+    out = []
+    try:
+        names = [f for f in os.listdir(HISTORY_DIR) if f.endswith(".json")]
+    except OSError:
+        return out
+    for fn in names:
+        try:
+            with open(os.path.join(HISTORY_DIR, fn), encoding="utf-8") as f:
+                r = json.load(f)
+            p = r.get("params") or {}
+            out.append({"id": r["id"], "created": r.get("created"),
+                        "createdStr": r.get("createdStr"),
+                        "from": (p.get("from") or {}).get("name"),
+                        "to": (p.get("to") or {}).get("name"),
+                        "datetime": p.get("datetime"),
+                        "count": len(r.get("results") or []),
+                        "status": r.get("status")})
+        except (OSError, ValueError, KeyError):
+            continue
+    out.sort(key=lambda x: x.get("created") or 0, reverse=True)
+    return out
+
+
+def get_history(job_id):
+    try:
+        with open(_history_path(job_id), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
 
 def _osm_places(lat, lon, radius_km):
     """Alle Staedte/Doerfer im Umkreis via OpenStreetMap (Overpass), gecacht."""
@@ -213,6 +274,10 @@ class ScanJob:
     def __init__(self, params):
         self.id = uuid.uuid4().hex[:12]
         self.params = params
+        self.created = time.time()
+        self.created_str = time.strftime("%d.%m.%Y %H:%M")
+        self.soll_connections = []
+        self.status = "running"
         self.events = []
         self.cond = threading.Condition()
         self.cancelled = False
@@ -233,6 +298,15 @@ class ScanJob:
         self.pending_phases = {}   # bekannte, noch nicht gestartete Phasen: name -> total
         self.c_known = False       # Umfang von Phase C bekannt -> ETA nicht mehr "mind."
         self.thread = threading.Thread(target=self._run_safe, daemon=True)
+
+    def persist(self):
+        """Aktuellen Stand dauerhaft sichern (ueberlebt Neustart/Sleep)."""
+        save_history({
+            "id": self.id, "created": self.created, "createdStr": self.created_str,
+            "status": self.status, "params": self.params, "soll": self.soll_connections,
+            "results": sorted(self.results.values(), key=lambda r: r["price"]),
+            "stats": dict(self.stats),
+        })
 
     def _stat(self, **kwargs):
         with self.stats_lock:
@@ -324,6 +398,8 @@ class ScanJob:
             "phase": phase,
             "lat": ticket_from.get("lat"),
             "lon": ticket_from.get("lon"),
+            "bookUrl": oebb.booking_url(conn),
+            "path": oebb.connection_path(conn),
         }
         old = self.results.get(key)
         if old is None or price < old["price"]:
@@ -356,11 +432,14 @@ class ScanJob:
     def _run_safe(self):
         try:
             self._run()
+            self.status = "fertig"
         except Exception as e:
+            self.status = "abgebrochen" if self.cancelled else "fehler"
             self.error = str(e)
             self.emit("error", {"message": str(e)})
         finally:
             self.finished = True
+            self.persist()  # Endstand dauerhaft sichern
             with self.cond:
                 self.cond.notify_all()
 
@@ -384,7 +463,9 @@ class ScanJob:
                                "bitte Verbindungen neu laden.")
         if selected:
             self.emit("log", {"msg": f"Suche eingegrenzt auf {len(soll_list)} ausgewählte Verbindung(en)"})
+        self.soll_connections = soll_list
         self.emit("soll", {"connections": soll_list})
+        self.persist()  # Zwischenstand sichern (falls Instanz mitten im Scan neu startet)
 
         # Probe: geht es ohne travelAction? (spart 1/3 der Requests)
         try:
@@ -468,6 +549,7 @@ class ScanJob:
                              soll_list=soll_list, phase="C"),
                          on_survivor=None)
 
+        self.persist()  # Ergebnisse dauerhaft sichern (vor dem done-Event)
         self.emit("log", {"msg": self._stats_line()})
         results = sorted(self.results.values(), key=lambda r: r["price"])
         self.emit("done", {"count": len(results)})

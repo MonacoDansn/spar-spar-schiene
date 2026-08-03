@@ -3,3 +3,4 @@ __pycache__/
 data/stations.json
 data/bus_cache.json
 data/places_cache.json
+data/history/

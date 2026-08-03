@@ -12,6 +12,7 @@ const state = {
   sollLoaded: false,        // Schritt ① erledigt?
   scanRunning: false,
   sollSelected: new Set(),  // Keys der angehakten Soll-Verbindungen
+  selectedKey: null,        // aktuell auf der Karte angezeigte Verbindung
 };
 
 const sollKey = (trains) => trains.join("+");
@@ -28,7 +29,46 @@ const mapLayers = {
   circles: L.layerGroup().addTo(map),
   candidates: L.layerGroup().addTo(map),
   hits: L.layerGroup().addTo(map),
+  route: L.layerGroup().addTo(map),  // Strecke der ausgewaehlten Verbindung
 };
+
+const geoCache = {};  // eva -> {name, lat, lon}
+
+async function geocodeEvas(evas) {
+  const missing = [...new Set(evas.filter((e) => e && !(e in geoCache)))];
+  if (missing.length) {
+    try {
+      const data = await (await fetch("/api/geocode?evas=" + encodeURIComponent(missing.join(",")))).json();
+      Object.assign(geoCache, data);
+    } catch (e) { /* ignore */ }
+  }
+  return evas.map((e) => geoCache[e]).filter(Boolean);
+}
+
+// Zeichnet die Strecke einer ausgewaehlten Verbindung + markiert Ein-/Ausstieg
+async function showRoute(r) {
+  mapLayers.route.clearLayers();
+  const stops = await geocodeEvas((r.path || []).map((p) => p.eva));
+  const line = stops.map((s) => [s.lat, s.lon]);
+  if (line.length >= 2) {
+    L.polyline(line, { color: "#7b2ff7", weight: 5, opacity: 0.8 }).addTo(mapLayers.route);
+    stops.forEach((s, i) =>
+      L.circleMarker([s.lat, s.lon],
+        { radius: 4, color: "#7b2ff7", fillColor: "#fff", fillOpacity: 1, weight: 2 })
+        .bindTooltip(s.name + (i === 0 ? " (Ticket-Start)" : i === stops.length - 1 ? " (Ticket-Ende)" : ""))
+        .addTo(mapLayers.route));
+  }
+  [[state.from, "🚉 Dein Einstieg", "#1a7f37"], [state.to, "🏁 Dein Ausstieg", "#e2002a"]].forEach(([st, lbl, col]) => {
+    if (st && st.lat) {
+      L.marker([st.lat, st.lon], {
+        icon: L.divIcon({ className: "", html: `<div class="stop-pin" style="background:${col}"></div>`, iconSize: [16, 16], iconAnchor: [8, 8] }),
+      }).bindTooltip(`${lbl}: ${st.name}`).addTo(mapLayers.route);
+    }
+  });
+  const all = line.concat([state.from, state.to].filter((s) => s && s.lat).map((s) => [s.lat, s.lon]));
+  if (all.length) map.fitBounds(L.latLngBounds(all).pad(0.25));
+  document.getElementById("map-card").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
 
 function drawHalfCircle(center, other, radiusKm, color) {
   // Halbkreis um center, weggedreht von other
@@ -253,6 +293,8 @@ scanBtn.onclick = async () => {
   document.getElementById("results-card").style.display = "none";
   mapLayers.candidates.clearLayers();
   mapLayers.hits.clearLayers();
+  mapLayers.route.clearLayers();
+  state.selectedKey = null;
   state.scanRunning = true;
   scanBtn.disabled = true;
   cancelBtn.style.display = "";
@@ -537,7 +579,61 @@ function finishScan() {
   updateScanBtn();
   cancelBtn.style.display = "none";
   if (state.evtSource) state.evtSource.close();
+  loadHistory();  // frisch abgeschlossenen Scan in den Verlauf aufnehmen
 }
+
+// ---------- Verlauf (Historie) ----------
+
+async function loadHistory() {
+  try {
+    const list = await (await fetch("/api/history")).json();
+    const box = document.getElementById("history-list");
+    if (!Array.isArray(list) || !list.length) {
+      document.getElementById("history-card").style.display = "none";
+      return;
+    }
+    box.innerHTML = "";
+    list.forEach((h) => {
+      const row = document.createElement("div");
+      row.className = "hist-row";
+      const dt = h.datetime ? h.datetime.slice(8, 10) + "." + h.datetime.slice(5, 7) + ". " + h.datetime.slice(11, 16) : "";
+      row.innerHTML =
+        `<span class="hist-route">${h.from || "?"} → ${h.to || "?"}</span>` +
+        `<span class="hist-meta">${dt} · ${h.count} Tickets · ${h.status || ""}</span>` +
+        `<span class="hist-when">${h.createdStr || ""}</span>`;
+      row.onclick = () => restoreScan(h.id);
+      box.appendChild(row);
+    });
+    document.getElementById("history-card").style.display = "";
+  } catch (e) { /* ignore */ }
+}
+
+async function restoreScan(id) {
+  let rec;
+  try {
+    rec = await (await fetch("/api/history/" + id)).json();
+  } catch (e) { return; }
+  if (!rec || rec.error) return;
+  const p = rec.params || {};
+  state.from = p.from || null;
+  state.to = p.to || null;
+  state.results = rec.results || [];
+  state.selectedKey = null;
+  if (state.from) document.getElementById("from-input").value = state.from.name;
+  if (state.to) document.getElementById("to-input").value = state.to.name;
+  if (p.datetime) { dateInput.value = p.datetime.slice(0, 10); timeInput.value = p.datetime.slice(11, 16); }
+  if (p.radiusStart != null) { radiusStart.value = p.radiusStart; document.getElementById("radius-start-val").textContent = p.radiusStart; }
+  if (p.radiusDest != null) { radiusDest.value = p.radiusDest; document.getElementById("radius-dest-val").textContent = p.radiusDest; }
+  document.querySelectorAll(".board-name").forEach((e) => (e.textContent = state.from ? state.from.name : ""));
+  document.querySelectorAll(".alight-name").forEach((e) => (e.textContent = state.to ? state.to.name : ""));
+  mapLayers.route.clearLayers();
+  updateMap();
+  renderSoll(rec.soll || []);
+  renderResults();
+  document.getElementById("results-card").scrollIntoView({ behavior: "smooth" });
+}
+
+loadHistory();
 
 function renderResults() {
   // Filter: nur angehakte Soll-Verbindungen; Teilstrecken nur auf Wunsch
@@ -577,9 +673,10 @@ function renderResults() {
       `<td class="c-to">${r.ticketTo}<br><small>an ${fmtTime(r.ticketArr)}</small></td>` +
       `<td class="c-trains trains">${r.trains.join(" → ")}</td>` +
       `<td class="c-board">${fmtTime(r.boardTime)} <small>(dein Bahnhof)</small></td>` +
-      `<td class="c-book"><a href="https://shop.oebbtickets.at/de/ticket" target="_blank">buchen ↗</a></td>`;
+      `<td class="c-book"><a href="${r.bookUrl || "https://shop.oebbtickets.at/de/ticket"}" target="_blank" rel="noopener" onclick="event.stopPropagation()">buchen ↗</a></td>`;
   };
 
+  const rKey = (r) => `${r.ticketFromId}|${r.ticketToId}|${r.trains.join("+")}`;
   ["A", "B", "C"].forEach((phase) => {
     const group = document.getElementById("group-" + phase);
     const rows = sorted.filter((r) => r.phase === phase);
@@ -589,8 +686,16 @@ function renderResults() {
     tbody.innerHTML = "";
     rows.forEach((r) => {
       const tr = document.createElement("tr");
+      tr.classList.add("clickable");
       if (r === best) tr.classList.add("best");
+      if (rKey(r) === state.selectedKey) tr.classList.add("selected");
       tr.innerHTML = rowHtml(r);
+      tr.onclick = () => {
+        state.selectedKey = rKey(r);
+        document.querySelectorAll("tr.selected").forEach((x) => x.classList.remove("selected"));
+        tr.classList.add("selected");
+        showRoute(r);
+      };
       tbody.appendChild(tr);
     });
   });

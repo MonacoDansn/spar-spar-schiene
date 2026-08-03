@@ -27,6 +27,8 @@ KEEPALIVE_SECS = int(os.environ.get("SPAR_KEEPALIVE_SECS", "240"))
 
 shared_client = oebb.OebbClient(max_rps=8)
 
+_geo_cache = {}  # eva -> {name, lat, lon} | None (fuer Streckenanzeige)
+
 MIME = {
     ".html": "text/html; charset=utf-8",
     ".js": "application/javascript; charset=utf-8",
@@ -180,6 +182,29 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(out)
             except Exception as e:
                 self._json({"error": str(e)}, 502)
+        elif path == "/api/geocode":
+            # eva-Stationsnummern -> Koordinaten (fuer Streckenanzeige), gecacht
+            evas = [e for e in (qs.get("evas") or [""])[0].split(",") if e]
+            out = {}
+            for eva in evas[:60]:
+                if eva not in _geo_cache:
+                    try:
+                        res = shared_client.search_stations(eva)
+                        hit = next((s for s in res if str(s.get("number")) == eva), None) \
+                            or (res[0] if res else None)
+                        _geo_cache[eva] = ({"name": hit.get("name") or hit.get("meta"),
+                                            "lat": hit["latitude"] / 1e6,
+                                            "lon": hit["longitude"] / 1e6} if hit else None)
+                    except Exception:
+                        _geo_cache[eva] = None
+                if _geo_cache[eva]:
+                    out[eva] = _geo_cache[eva]
+            self._json(out)
+        elif path == "/api/history":
+            self._json(scanner.list_history())
+        elif path.startswith("/api/history/"):
+            rec = scanner.get_history(path.split("/")[3])
+            self._json(rec if rec else {"error": "nicht gefunden"}, 200 if rec else 404)
         elif path.startswith("/api/scan/") and path.endswith("/events"):
             job_id = path.split("/")[3]
             self._sse(job_id, int((qs.get("seq") or ["0"])[0]))
