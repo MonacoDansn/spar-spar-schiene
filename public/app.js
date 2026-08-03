@@ -568,7 +568,7 @@ function handleEvent(ev) {
         (r) => `${r.ticketFromId}|${r.ticketToId}|${r.trains.join("+")}` === key);
       if (idx >= 0) state.results[idx] = d;
       else state.results.push(d);
-      renderResults();
+      scheduleRender();  // gebuendelt neu zeichnen (sonst ruckelt es bei vielen Treffern)
       break;
     }
     case "log":
@@ -648,7 +648,16 @@ async function restoreScan(id) {
 
 loadHistory();
 
+// Live-Treffer gebuendelt zeichnen: hoechstens ~alle 400 ms ein Full-Render,
+// damit die Oberflaeche bei vielen schnell eintreffenden Treffern nicht ruckelt/einfriert.
+let _renderTimer = null;
+function scheduleRender() {
+  if (_renderTimer) return;
+  _renderTimer = setTimeout(() => { _renderTimer = null; renderResults(); }, 400);
+}
+
 function renderResults() {
+  if (_renderTimer) { clearTimeout(_renderTimer); _renderTimer = null; }
   // Filter: nur angehakte Soll-Verbindungen; Teilstrecken nur auf Wunsch
   const showReduced = document.getElementById("show-reduced").checked;
   const filtered = state.results.filter(
