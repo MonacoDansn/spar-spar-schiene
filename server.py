@@ -27,7 +27,47 @@ KEEPALIVE_SECS = int(os.environ.get("SPAR_KEEPALIVE_SECS", "240"))
 
 shared_client = oebb.OebbClient(max_rps=8)
 
-_geo_cache = {}  # eva -> {name, lat, lon} | None (fuer Streckenanzeige)
+_geo_cache = {}    # eva -> {name, lat, lon} | None (fuer Streckenanzeige)
+_route_cache = {}  # "eva,eva,..." -> [[lat,lon],...] | None (Bahntrassen-Geometrie)
+
+# Bahn-Routing ueber OpenStreetMap-Gleise (OSRM-Zugprofil). Snappt die Halte an die
+# echten Gleise und liefert die Trassen-Geometrie. Community-Dienst -> bei Ausfall
+# faellt die Anzeige auf die gerade Linie zurueck.
+OSRM_RAIL = "https://signal.eu.org/osm/eu/route/v1/train/"
+
+
+def _resolve_eva(eva):
+    """eva-Stationsnummer -> {name, lat, lon} (gecacht)."""
+    if eva not in _geo_cache:
+        try:
+            res = shared_client.search_stations(eva)
+            hit = next((s for s in res if str(s.get("number")) == eva), None) \
+                or (res[0] if res else None)
+            _geo_cache[eva] = ({"name": hit.get("name") or hit.get("meta"),
+                                "lat": hit["latitude"] / 1e6,
+                                "lon": hit["longitude"] / 1e6} if hit else None)
+        except Exception:
+            _geo_cache[eva] = None
+    return _geo_cache[eva]
+
+
+def _rail_geometry(coords):
+    """Ruft das OSRM-Zugprofil fuer die geordneten Wegpunkte -> [[lat,lon],...] entlang
+    der Gleise, oder None bei Fehler (dann zeichnet das Frontend eine gerade Linie)."""
+    if len(coords) < 2:
+        return None
+    pts = ";".join(f"{lon},{lat}" for lat, lon in coords)  # OSRM erwartet lon,lat
+    url = OSRM_RAIL + pts + "?overview=full&geometries=geojson&steps=false"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "SparSparSchiene/1.0"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        if data.get("code") != "Ok" or not data.get("routes"):
+            return None
+        geo = data["routes"][0].get("geometry", {}).get("coordinates", [])
+        return [[lat, lon] for lon, lat in geo]  # zurueck zu lat,lon fuer Leaflet
+    except Exception:
+        return None
 
 MIME = {
     ".html": "text/html; charset=utf-8",
@@ -185,21 +225,16 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/geocode":
             # eva-Stationsnummern -> Koordinaten (fuer Streckenanzeige), gecacht
             evas = [e for e in (qs.get("evas") or [""])[0].split(",") if e]
-            out = {}
-            for eva in evas[:60]:
-                if eva not in _geo_cache:
-                    try:
-                        res = shared_client.search_stations(eva)
-                        hit = next((s for s in res if str(s.get("number")) == eva), None) \
-                            or (res[0] if res else None)
-                        _geo_cache[eva] = ({"name": hit.get("name") or hit.get("meta"),
-                                            "lat": hit["latitude"] / 1e6,
-                                            "lon": hit["longitude"] / 1e6} if hit else None)
-                    except Exception:
-                        _geo_cache[eva] = None
-                if _geo_cache[eva]:
-                    out[eva] = _geo_cache[eva]
+            out = {e: _resolve_eva(e) for e in evas[:60] if _resolve_eva(e)}
             self._json(out)
+        elif path == "/api/route":
+            # Bahntrassen-Geometrie fuer eine Verbindung (geordnete eva-Liste)
+            evas = [e for e in (qs.get("evas") or [""])[0].split(",") if e][:60]
+            key = ",".join(evas)
+            stops = [s for s in (_resolve_eva(e) for e in evas) if s]
+            if key not in _route_cache:
+                _route_cache[key] = _rail_geometry([(s["lat"], s["lon"]) for s in stops])
+            self._json({"stops": stops, "line": _route_cache[key]})
         elif path == "/api/history":
             self._json(scanner.list_history())
         elif path.startswith("/api/history/"):

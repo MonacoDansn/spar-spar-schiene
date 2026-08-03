@@ -32,32 +32,33 @@ const mapLayers = {
   route: L.layerGroup().addTo(map),  // Strecke der ausgewaehlten Verbindung
 };
 
-const geoCache = {};  // eva -> {name, lat, lon}
+const routeCache = {};  // eva-Kette -> {stops, line}
 
-async function geocodeEvas(evas) {
-  const missing = [...new Set(evas.filter((e) => e && !(e in geoCache)))];
-  if (missing.length) {
-    try {
-      const data = await (await fetch("/api/geocode?evas=" + encodeURIComponent(missing.join(",")))).json();
-      Object.assign(geoCache, data);
-    } catch (e) { /* ignore */ }
-  }
-  return evas.map((e) => geoCache[e]).filter(Boolean);
-}
-
-// Zeichnet die Strecke einer ausgewaehlten Verbindung + markiert Ein-/Ausstieg
+// Zeichnet die Strecke einer ausgewaehlten Verbindung ENTLANG DER BAHNTRASSE
+// (Geometrie vom Server / OSM-Gleis-Routing) + markiert Ein-/Ausstieg.
 async function showRoute(r) {
   mapLayers.route.clearLayers();
-  const stops = await geocodeEvas((r.path || []).map((p) => p.eva));
-  const line = stops.map((s) => [s.lat, s.lon]);
-  if (line.length >= 2) {
-    L.polyline(line, { color: "#7b2ff7", weight: 5, opacity: 0.8 }).addTo(mapLayers.route);
-    stops.forEach((s, i) =>
-      L.circleMarker([s.lat, s.lon],
-        { radius: 4, color: "#7b2ff7", fillColor: "#fff", fillOpacity: 1, weight: 2 })
-        .bindTooltip(s.name + (i === 0 ? " (Ticket-Start)" : i === stops.length - 1 ? " (Ticket-Ende)" : ""))
-        .addTo(mapLayers.route));
+  const evas = (r.path || []).map((p) => p.eva).filter(Boolean);
+  const key = evas.join(",");
+  let data = routeCache[key];
+  if (!data) {
+    try {
+      data = await (await fetch("/api/route?evas=" + encodeURIComponent(key))).json();
+      routeCache[key] = data;
+    } catch (e) { data = { stops: [], line: null }; }
   }
+  const stops = data.stops || [];
+  // Bahntrasse, falls verfuegbar; sonst gerade Linie durch die Halte (Rueckfallebene)
+  const line = (data.line && data.line.length >= 2)
+    ? data.line : stops.map((s) => [s.lat, s.lon]);
+  if (line.length >= 2) {
+    L.polyline(line, { color: "#7b2ff7", weight: 5, opacity: 0.85 }).addTo(mapLayers.route);
+  }
+  stops.forEach((s, i) =>
+    L.circleMarker([s.lat, s.lon],
+      { radius: 4, color: "#7b2ff7", fillColor: "#fff", fillOpacity: 1, weight: 2 })
+      .bindTooltip(s.name + (i === 0 ? " (Ticket-Start)" : i === stops.length - 1 ? " (Ticket-Ende)" : ""))
+      .addTo(mapLayers.route));
   [[state.from, "🚉 Dein Einstieg", "#1a7f37"], [state.to, "🏁 Dein Ausstieg", "#e2002a"]].forEach(([st, lbl, col]) => {
     if (st && st.lat) {
       L.marker([st.lat, st.lon], {
@@ -65,8 +66,8 @@ async function showRoute(r) {
       }).bindTooltip(`${lbl}: ${st.name}`).addTo(mapLayers.route);
     }
   });
-  const all = line.concat([state.from, state.to].filter((s) => s && s.lat).map((s) => [s.lat, s.lon]));
-  if (all.length) map.fitBounds(L.latLngBounds(all).pad(0.25));
+  const bounds = line.concat([state.from, state.to].filter((s) => s && s.lat).map((s) => [s.lat, s.lon]));
+  if (bounds.length) map.fitBounds(L.latLngBounds(bounds).pad(0.15));
   document.getElementById("map-card").scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
